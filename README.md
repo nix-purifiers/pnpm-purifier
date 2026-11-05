@@ -349,6 +349,28 @@ pnpm add kleur
 `pnpm install` installs from the locked files, offline. `pnpm add kleur`
 resolves online and locks again.
 
+## Browser resource projections
+
+Pass `webAssets = { "@proof/browser" = "public"; };` to `buildPnpmProject`
+to select a built, self-contained browser asset directory inside an owned
+package. Each selected package exposes `projections.resources`, `web`, and
+`java-resources`, plus immutable `maven`/`ivy` WebJar publications. Scoped names
+map to artifact IDs such as `proof__browser`; the native package version remains
+in the WebJar resource path. Existing npm projections remain available, and the
+build result aggregates the selected Maven/Ivy publications.
+
+Use `resources.directory` for file imports, `web.documentRoot` for serving, or
+`java-resources.classPath` for plain Java resources. WebJar consumers resolve
+`projections.maven` through an ordinary JVM dependency resolver. Only the
+selected directory enters the resource bundle. Package roots, traversal,
+`node_modules`, unknown packages and escaping asset symlinks are rejected.
+
+The check builds ES modules with a local helper dependency, executes that
+module import with Node, checks all resource bytes through HTTP and Java,
+and resolves the WebJar with ordinary offline Gradle. It does not execute a
+browser. Select a browser build target and include its runtime assets: the
+adapter does not transform Node/Bun APIs or bundle dependencies automatically.
+
 ## Credits
 
 The purifier idea was inspired by nixcloud's

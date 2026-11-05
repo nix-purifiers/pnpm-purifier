@@ -53,6 +53,7 @@ scope@{
 {
   # The root of the pnpm workspace or project, which holds pnpm-lock.yaml.
   src,
+  webAssets ? { },
   # Fetchers for the purifier library's fetchEntry, by name, such as a
   # `fetchurl` for a mirror or for credentials.
   fetchers ? { },
@@ -320,7 +321,9 @@ let
       passthru = {
         inherit lock;
         dependencies = lockedDependencies;
-        projections = projectionFor [ project.name ];
+        projections =
+          projectionFor [ project.name ]
+          // webProjectionFor project.name finalAttrs.finalPackage (manifest.version or "0");
         pnpmProject = project;
         # The outputs of the project, known from the lockfile and its
         # package.json before the package is built: `bin.<name>`, the
@@ -456,9 +459,58 @@ let
         python3
         ;
     };
-  projections = projectionFor null;
+  packagesForWeb = packages;
+  ownPackagesForWeb = projects;
+  webProjectionFor =
+    name: package: version:
+    lib.optionalAttrs (builtins.hasAttr name webAssets) (
+      (purifier.resourceProjections {
+        producer = package;
+        roots."." = "lib/node_modules/${name}/${webAssets.${name}}";
+        inherit runCommand python3;
+      })
+      // (purifier.webjarProjections {
+        producer = package;
+        assets = "${package}/lib/node_modules/${name}/${webAssets.${name}}";
+        artifactId = builtins.replaceStrings [ "@" "/" ] [ "" "__" ] name;
+        inherit version runCommand python3;
+      })
+    );
+  projections =
+    projectionFor null
+    // lib.optionalAttrs (webAssets != { }) (
+      purifier.jvmProjections {
+        repository = null;
+        dependencies = lib.mapAttrsToList (name: _: packagesForWeb.${name}) webAssets;
+        formats = [
+          "maven"
+          "ivy"
+        ];
+        inherit runCommand python3;
+      }
+    );
 
 in
+assert
+  builtins.all (name: builtins.hasAttr name ownPackagesForWeb) (builtins.attrNames webAssets)
+  || throw "pnpm-purifier: webAssets must name packages owned by this project";
+assert
+  builtins.all (
+    path:
+    builtins.isString path
+    && path != ""
+    && !lib.hasPrefix "/" path
+    && builtins.all (
+      part:
+      !builtins.elem part [
+        ""
+        "."
+        ".."
+        "node_modules"
+      ]
+    ) (lib.splitString "/" path)
+  ) (builtins.attrValues webAssets)
+  || throw "pnpm-purifier: webAssets must select relative asset subdirectories, excluding node_modules";
 {
   inherit
     lock

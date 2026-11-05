@@ -1,0 +1,11 @@
+{
+  "name": "@proof/browser",
+  "version": "1.0.0",
+  "files": [
+    "public"
+  ],
+  "scripts": {
+    "build": "node build.cjs"
+  },
+  "packageManager": "pnpm@10.6.5"
+}

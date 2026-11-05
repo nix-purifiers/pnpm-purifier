@@ -82,6 +82,10 @@ let
     };
 in
 {
+  browser-projections = import ./browser-projections.nix {
+    inherit pkgs;
+    build = buildPnpmProject;
+  };
   inherit cli;
   composition-producer = greet;
   composition-repository = workspace.projections.npm;
