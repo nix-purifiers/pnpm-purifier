@@ -13,11 +13,16 @@ command, ROOT = helpers['command'], helpers['ROOT']
 
 
 def main():
+    assert command('nix', 'config', 'show', 'sandbox') == 'true'
     system = command('nix', 'eval', '--impure', '--raw', '--expr', 'builtins.currentSystem')
     print('producer:', command('git', 'rev-parse', 'HEAD'), 'system:', system, flush=True)
-    snapshot = json.loads(command('nix', 'flake', 'metadata', '--json', 'path:' + str(ROOT)))['path']
+    snapshot = json.loads(command('nix', 'flake', 'archive', '--json', '--no-update-lock-file', str(ROOT)))['path']
+    assert Path(snapshot).resolve(strict=True).is_dir()
+    assert str(Path(snapshot).resolve()) == snapshot
+    command('nix', 'path-info', '--json', snapshot)
     with tempfile.TemporaryDirectory(prefix='pnpm-giget-runtime-') as temporary:
         temporary = Path(temporary)
+        command('nix-store', '--add-root', temporary / 'source', '--realise', snapshot)
         (temporary / 'run').mkdir(mode=0o700)
         env = dict(os.environ, PNPM_RUNTIME_SOURCE=snapshot, NO_COLOR='1', pnpm_config_pm_on_fail='ignore',
                    npm_config_manage_package_manager_versions='false',

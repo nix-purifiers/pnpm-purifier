@@ -11,8 +11,13 @@ import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import unquote, urlsplit
 root=Path(__file__).resolve().parent.parent
+assert subprocess.check_output(['nix','config','show','sandbox'],text=True).strip()=='true'
 system=subprocess.check_output(['nix','eval','--impure','--raw','--expr','builtins.currentSystem'],text=True).strip()
-snapshot=json.loads(subprocess.check_output(['nix','flake','metadata','--json','--no-write-lock-file','path:'+str(root)],text=True))['path']
+snapshot=json.loads(subprocess.check_output(['nix','flake','archive','--json','--no-update-lock-file',str(root)],text=True))['path']
+assert Path(snapshot).resolve(strict=True).is_dir()
+assert str(Path(snapshot).resolve()) == snapshot
+print('producer revision:',subprocess.check_output(['git','rev-parse','HEAD'],cwd=root,text=True).strip(),flush=True)
+subprocess.run(['nix','path-info','--json',snapshot],check=True)
 with tempfile.TemporaryDirectory(prefix='pnpm-native-composition-') as temporary:
     temporary=Path(temporary)
     subprocess.run(['nix-store','--add-root',str(temporary/'source'),'--realise',snapshot],check=True)
