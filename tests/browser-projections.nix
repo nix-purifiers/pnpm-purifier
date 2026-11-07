@@ -34,6 +34,7 @@ assert builtins.all (path: !(invalid path).success) [
 ];
 pkgs.runCommand "browser-webjar-ordinary-consumers"
   {
+    ${if pkgs.stdenv.hostPlatform.isDarwin then "__darwinAllowLocalNetworking" else null} = true;
     nativeBuildInputs = [
       pkgs.python3
       pkgs.nodejs
@@ -42,6 +43,7 @@ pkgs.runCommand "browser-webjar-ordinary-consumers"
     ];
   }
   ''
+    ${pkgs.python3}/bin/python3 ${./loopback.py}
     test -e ${
       import ./resource-consumer.nix {
         inherit pkgs;
