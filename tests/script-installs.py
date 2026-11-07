@@ -95,6 +95,11 @@ cases = [
     ['--filter', 'script-member', 'exec', 'node', 'check.cjs'],
     ['exec', '--filter', 'script-member', 'node', 'check.cjs'],
     ['--filter', 'script-member', 'test'],
+    ['-C', 'packages/member', 'member-only'],
+    ['--dir', 'packages/member', 'member-only'],
+    ['--dir=packages/member', 'member-only'],
+    ['-Cpackages/member', 'member-only'],
+    ['run', '-C', 'packages/member', 'member-only'],
 ]
 server = ThreadingHTTPServer(('127.0.0.1', 0), NativeRegistry)
 thread = threading.Thread(target=server.serve_forever, daemon=True)

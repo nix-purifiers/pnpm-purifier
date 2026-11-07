@@ -405,7 +405,7 @@ export function needsRegistry(args, scripts = []) {
   const command = words[0];
   if (command == null) return true;
   if (QUERYING.has(command)) return false;
-  const scoped = args.some((arg) => arg === "-r" || arg === "--recursive" || arg === "-F" || arg.startsWith("--filter") || arg.startsWith("-F"));
+  const scoped = args.some((arg) => arg === "-r" || arg === "--recursive" || arg === "-F" || arg.startsWith("--filter") || arg.startsWith("-F") || arg === "--dir" || arg.startsWith("--dir=") || arg.startsWith("-C"));
   return INSTALLING.has(command) || SCRIPTING.has(command) || scripts.includes(command) || scoped;
 }
 
