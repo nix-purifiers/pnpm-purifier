@@ -30,7 +30,9 @@ def main():
     assert command('nix', 'config', 'show', 'sandbox') == 'true'
     system = command('nix', 'eval', '--impure', '--raw', '--expr', 'builtins.currentSystem')
     print('source:', command('git', 'rev-parse', 'HEAD'), 'system:', system, flush=True)
+    source_lock_before = (ROOT / 'flake.lock').read_bytes()
     snapshot = json.loads(command('nix', 'flake', 'archive', '--json', '--no-update-lock-file', str(ROOT)))['path']
+    assert (ROOT / 'flake.lock').read_bytes() == source_lock_before
     assert Path(snapshot).resolve(strict=True).is_dir()
     assert str(Path(snapshot).resolve()) == snapshot
     command('nix', 'path-info', '--json', snapshot)

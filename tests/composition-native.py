@@ -13,7 +13,9 @@ from urllib.parse import unquote, urlsplit
 root=Path(__file__).resolve().parent.parent
 assert subprocess.check_output(['nix','config','show','sandbox'],text=True).strip()=='true'
 system=subprocess.check_output(['nix','eval','--impure','--raw','--expr','builtins.currentSystem'],text=True).strip()
+source_lock_before=(root/'flake.lock').read_bytes()
 snapshot=json.loads(subprocess.check_output(['nix','flake','archive','--json','--no-update-lock-file',str(root)],text=True))['path']
+assert (root/'flake.lock').read_bytes()==source_lock_before
 assert Path(snapshot).resolve(strict=True).is_dir()
 assert str(Path(snapshot).resolve()) == snapshot
 print('producer revision:',subprocess.check_output(['git','rev-parse','HEAD'],cwd=root,text=True).strip(),flush=True)
