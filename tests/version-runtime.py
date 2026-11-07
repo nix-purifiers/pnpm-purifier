@@ -37,6 +37,26 @@ def assert_store(project, expected):
     assert Path(actual).resolve().is_relative_to(expected.resolve()), actual
 
 
+def assert_missing_locked_graph(cli, temporary, env):
+    project = temporary / 'missing-locked-graph'
+    shutil.copytree(ROOT / 'tests/fixtures/sources', project)
+    (project / 'server.js').write_text('console.log("MISSING_LOCK_SCRIPT_MUST_NOT_RUN");\n')
+    missing = ROOT / 'tests/fixtures/negative/missing-entry.lock.json'
+    cold_env = dict(env, pnpm_config_store_dir=str(temporary / 'missing-graph-store'),
+                    npm_config_store_dir=str(temporary / 'missing-graph-store'),
+                    pnpm_config_registry='http://127.0.0.1:9/')
+    result = subprocess.run([str(cli), '--lockfile', str(missing), 'start'], cwd=project,
+                            env=cold_env, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    print(result.stdout, flush=True)
+    assert result.returncode != 0
+    assert '3171b26' in result.stdout and 'pnpm-purifier lock' in result.stdout, result.stdout
+    assert 'MISSING_LOCK_SCRIPT_MUST_NOT_RUN' not in result.stdout
+    assert 'UNEXPECTED_STORE' not in result.stdout
+    print('PASS actual wrapper rejects missing locked graph before fallback start', flush=True)
+    return {'status': result.returncode, 'missingLockedGitEntryRejected': True,
+            'fallbackScriptNotExecuted': True, 'output': result.stdout}
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--current-only', action='store_true',
@@ -159,6 +179,8 @@ def main():
                     assert (workspace / 'packages/member/node_modules/ms/package.json').is_file()
                     assert (workspace / 'pnpm-lock.yaml').read_bytes() == before_workspace_lock
                     print('PASS actual wrapper cold workspace route', arguments, flush=True)
+            if major == 'current':
+                assert_missing_locked_graph(cli, temporary, env)
             command(cli, 'add', 'picocolors@1.1.0', '--save-exact', '--store-dir', purifier_store, cwd=project, env=env)
             assert json.loads((project / 'package.json').read_text())['dependencies']['picocolors'] == '1.1.0'
             command(cli, 'remove', 'picocolors', '--store-dir', purifier_store, cwd=project, env=env)
