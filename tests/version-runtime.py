@@ -127,6 +127,34 @@ def main():
                                npm_config_store_dir=str(purifier_store))
                     assert 'milliseconds: 3600000' in command(cli, 'test', cwd=project, env=env)
                     print('PASS actual wrapper cold route', label, flush=True)
+                workspace_source = ROOT / 'tests/fixtures/script-installs'
+                workspace_template = temporary / 'workspace-prefetch'
+                shutil.copytree(workspace_source, workspace_template)
+                command(cli, 'prefetch', cwd=workspace_template, env=env)
+                workspace_cases = [['-r', 'run', 'member-only'],
+                                   ['--filter', 'script-member', 'member-only'],
+                                   ['run', '--filter', 'script-member', 'member-only'],
+                                   ['exec', '--filter', 'script-member', 'node', 'check.cjs'],
+                                   ['-C', 'packages/member', 'member-only'],
+                                   ['--dir', 'packages/member', 'member-only'],
+                                   ['--dir=packages/member', 'member-only'],
+                                   ['-Cpackages/member', 'member-only'],
+                                   ['run', '-C', 'packages/member', 'member-only']]
+                for index, arguments in enumerate(workspace_cases):
+                    workspace = temporary / f'cold-workspace-{index}'
+                    shutil.copytree(workspace_source, workspace)
+                    store = temporary / f'cold-workspace-store-{index}'
+                    assert not store.exists() and not (workspace / 'node_modules').exists()
+                    before_workspace_lock = (workspace / 'pnpm-lock.yaml').read_bytes()
+                    cold_env = dict(env, pnpm_config_store_dir=str(store),
+                                    npm_config_store_dir=str(store),
+                                    pnpm_config_registry='http://127.0.0.1:9/')
+                    output = command(cli, *arguments, cwd=workspace, env=cold_env)
+                    assert 'script-installed: 3600000' in output, output
+                    assert_store(workspace, store)
+                    assert (workspace / 'packages/member/node_modules/ms/package.json').is_file()
+                    assert (workspace / 'pnpm-lock.yaml').read_bytes() == before_workspace_lock
+                    print('PASS actual wrapper cold workspace route', arguments, flush=True)
             command(cli, 'add', 'picocolors@1.1.0', '--save-exact', '--store-dir', purifier_store, cwd=project, env=env)
             assert json.loads((project / 'package.json').read_text())['dependencies']['picocolors'] == '1.1.0'
             command(cli, 'remove', 'picocolors', '--store-dir', purifier_store, cwd=project, env=env)

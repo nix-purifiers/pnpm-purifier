@@ -237,6 +237,9 @@ test("needsRegistry covers explicit and automatic script installs", () => {
   assert.equal(needsRegistry(["--filter-prod", "member", "run", "member-only"]), true);
   assert.equal(needsRegistry(["exec", "--filter", "member", "node", "--version"]), true);
   assert.equal(needsRegistry(["--version", "run", "build"]), false);
+  for (const args of [["-C", "packages/member", "member-only"], ["--dir", "packages/member", "member-only"], ["--dir=packages/member", "member-only"], ["-Cpackages/member", "member-only"], ["run", "-C", "packages/member", "member-only"]]) {
+    assert.equal(needsRegistry(args, ["build"]), true, args.join(" "));
+  }
   assert.equal(needsRegistry(["why", "ms"], ["why"]), false);
 });
 
