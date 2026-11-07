@@ -37,6 +37,27 @@ def assert_store(project, expected):
     assert Path(actual).resolve().is_relative_to(expected.resolve()), actual
 
 
+def assert_implicit_shortcut_flags(cli, temporary, env):
+    records = []
+    for index, arguments in enumerate([['test', '--help'], ['start', '--help'], ['start', '--version']]):
+        project = temporary / f'implicit-shortcut-{index}'
+        shutil.copytree(ROOT / 'tests/fixtures/script-installs', project)
+        store = temporary / f'implicit-shortcut-store-{index}'
+        assert not store.exists() and not (project / 'node_modules').exists()
+        before = (project / 'pnpm-lock.yaml').read_bytes()
+        cold_env = dict(env, pnpm_config_store_dir=str(store), npm_config_store_dir=str(store),
+                        pnpm_config_registry='http://127.0.0.1:9/')
+        output = command(cli, *arguments, cwd=project, env=cold_env)
+        assert 'script-installed: 3600000' in output, output
+        assert_store(project, store)
+        assert (project / 'node_modules/ms/package.json').is_file()
+        assert (project / 'pnpm-lock.yaml').read_bytes() == before
+        records.append({'arguments': arguments, 'coldInstallViaLockedMirror': True,
+                        'storeMatched': True, 'lockUnchanged': True})
+        print('PASS actual wrapper implicit shortcut child flags', arguments, flush=True)
+    return records
+
+
 def assert_missing_locked_graph(cli, temporary, env):
     project = temporary / 'missing-locked-graph'
     shutil.copytree(ROOT / 'tests/fixtures/sources', project)
@@ -180,6 +201,7 @@ def main():
                     assert (workspace / 'pnpm-lock.yaml').read_bytes() == before_workspace_lock
                     print('PASS actual wrapper cold workspace route', arguments, flush=True)
             if major == 'current':
+                assert_implicit_shortcut_flags(cli, temporary, env)
                 assert_missing_locked_graph(cli, temporary, env)
             command(cli, 'add', 'picocolors@1.1.0', '--save-exact', '--store-dir', purifier_store, cwd=project, env=env)
             assert json.loads((project / 'package.json').read_text())['dependencies']['picocolors'] == '1.1.0'

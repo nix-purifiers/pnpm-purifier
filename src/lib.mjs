@@ -390,6 +390,7 @@ const INSTALLING = new Set(["install", "i", "ci", "fetch", "rebuild", "rb", "dep
 // pnpm 12 can install before running scripts and executables. Keep those
 // automatic installs on the same locked registry as an explicit install.
 const SCRIPTING = new Set(["run", "run-script", "test", "t", "tst", "exec", "start", "stop", "restart"]);
+const HELP_WITHOUT_TARGET = new Set(["run", "run-script", "exec", "restart"]);
 const QUERYING = new Set(["why", "list", "ls", "config", "root", "bin", "store", "audit", "licenses", "doctor", "env", "setup", "completion", "help", "view", "info", "search"]);
 export function needsRegistry(args, scripts = []) {
   const words = [];
@@ -399,7 +400,7 @@ export function needsRegistry(args, scripts = []) {
     if (!childArguments && VALUE_OPTIONS.has(arg)) i++;
     else if (arg === "--") childArguments = true;
     else if (!childArguments && ["--version", "-v", "--help", "-h"].includes(arg)
-      && (words.length === 0 || (words.length === 1 && (SCRIPTING.has(words[0]) || INSTALLING.has(words[0]))))) return false;
+      && (words.length === 0 || (words.length === 1 && (HELP_WITHOUT_TARGET.has(words[0]) || INSTALLING.has(words[0]))))) return false;
     else if (!arg.startsWith("-")) words.push(arg);
   }
   const command = words[0];
