@@ -247,11 +247,25 @@ jobs:
           # Children retain loopback for the locked registry and Unix sockets
           # for Nix. The daemon is separate: forbid its substitutes explicitly.
           export NIX_CONFIG=$'substituters =\nconnect-timeout = 1'
-          sandbox-exec -p '(version 1)(allow default)(deny network*)(allow network* (remote ip "localhost:*"))(allow network* (local ip "localhost:*"))(allow network* (local unix-socket))(allow network* (remote unix-socket))' /bin/bash -euo pipefail -c '
+          sandbox-exec -p '(version 1)(allow default)(deny network*)(allow network-outbound (remote ip "127.0.0.1:*"))(allow network-bind (local ip "127.0.0.1:*"))(allow network-inbound (local ip "127.0.0.1:*"))(allow network* (local unix-socket))(allow network* (remote unix-socket))' /bin/bash -euo pipefail -c '
             if /usr/bin/curl --silent --max-time 10 https://registry.npmjs.org/ > /dev/null; then
               echo "the network is still reachable" >&2
               exit 1
             fi
+            # Prove the narrow policy still permits a real loopback HTTP
+            # server and client, rather than failing every network operation.
+            .pnpm-purifier/node/bin/node -e "const http = require(\"node:http\"); const fs = require(\"node:fs\"); const server = http.createServer((req, res) => res.end(\"loopback-ok\")); server.listen(0, \"127.0.0.1\", () => fs.writeFileSync(\"$RUNNER_TEMP/loopback-port\", String(server.address().port)));" &
+            probe=$!
+            trap "kill $probe 2>/dev/null || true" EXIT
+            for attempt in {1..100}; do
+              test -s "$RUNNER_TEMP/loopback-port" && break
+              sleep 0.1
+            done
+            test -s "$RUNNER_TEMP/loopback-port"
+            test "$(/usr/bin/curl --fail --silent --max-time 10 "http://127.0.0.1:$(cat "$RUNNER_TEMP/loopback-port")/")" = loopback-ok
+            kill "$probe"
+            wait "$probe" || true
+            trap - EXIT
             purifier=.pnpm-purifier/command/bin/pnpm-purifier
             test ! -e "$RUNNER_TEMP/offline-fresh-store"
             "$purifier" install --frozen-lockfile --store-dir "$RUNNER_TEMP/offline-fresh-store"
