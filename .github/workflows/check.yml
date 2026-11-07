@@ -36,8 +36,11 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31
+        with:
+          extra_nix_config: |
+            sandbox = true
       - name: Build and run the checks
-        run: nix flake check -L
+        run: nix flake check --option sandbox true -L
       - name: Record executable check derivations and outputs
         run: |
           set -euo pipefail
@@ -47,10 +50,12 @@ jobs:
             test "$system" = aarch64-darwin
           fi
           mkdir -p evidence
+          nix config show sandbox > evidence/sandbox-setting
+          test "$(cat evidence/sandbox-setting)" = true
           git rev-parse HEAD > evidence/source-revision
           cp flake.lock evidence/flake.lock
           for check in version-runtime-10 version-runtime-11 version-runtime-12 real-world fixture-tests; do
-            nix build --no-link --json ".#checks.$system.$check" > "evidence/$check.json"
+            nix build --option sandbox true --no-link --json ".#checks.$system.$check" > "evidence/$check.json"
             drv=$(nix eval --raw ".#checks.$system.$check.drvPath")
             nix derivation show "$drv" > "evidence/$check.drv.json"
             output=$(nix eval --raw ".#checks.$system.$check.outPath")
@@ -73,6 +78,9 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31
+        with:
+          extra_nix_config: |
+            sandbox = true
       # The relock of each fixture writes the purifier lockfile the fixture
       # holds, or none when the fixture holds none, and leaves
       # pnpm-lock.yaml as it is.
@@ -111,6 +119,9 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31
+        with:
+          extra_nix_config: |
+            sandbox = true
       # tests/fixtures/update locks ms at 2.0.0 within the range ^2.0.0.
       # After `update`, the lock holds a newer ms, `prefetch` accepts both
       # lockfiles as current (Nix evaluation fails on a stale purifier
@@ -155,13 +166,16 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31
+        with:
+          extra_nix_config: |
+            sandbox = true
       - name: Build the fixture packages, then build them again and compare
         run: |
           set -euo pipefail
           system=$(nix eval --impure --raw --expr builtins.currentSystem)
           for check in fixture-app fixture-greet; do
-            nix build --no-link ".#checks.$system.$check"
-            nix build --no-link --rebuild ".#checks.$system.$check"
+            nix build --option sandbox true --no-link ".#checks.$system.$check"
+            nix build --option sandbox true --no-link --rebuild ".#checks.$system.$check"
           done
 
   conformance-offline:
@@ -173,6 +187,9 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31
+        with:
+          extra_nix_config: |
+            sandbox = true
       - name: Prefetch the workspace fixture
         run: |
           set -euo pipefail
@@ -197,6 +214,8 @@ jobs:
         run: |
           set -euo pipefail
           cd "$RUNNER_TEMP/project"
+          # Expand variables in the child shell.
+          # shellcheck disable=SC2016
           unshare --map-root-user --net bash -euo pipefail -c '
             ip link set lo up
             if curl --silent --max-time 10 https://registry.npmjs.org/ > /dev/null; then
@@ -220,6 +239,9 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31
+        with:
+          extra_nix_config: |
+            sandbox = true
       - run: python3 tests/composition-native.py
 
   conformance-darwin-offline:
@@ -228,6 +250,9 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31
+        with:
+          extra_nix_config: |
+            sandbox = true
       - name: Verify native Darwin and prefetch
         run: |
           set -euo pipefail
@@ -247,6 +272,8 @@ jobs:
           # Children retain loopback for the locked registry and Unix sockets
           # for Nix. The daemon is separate: forbid its substitutes explicitly.
           export NIX_CONFIG=$'substituters =\nconnect-timeout = 1'
+          # Expand variables in the child shell.
+          # shellcheck disable=SC2016
           sandbox-exec -p '(version 1)(allow default)(deny network*)(allow network-outbound (remote ip "127.0.0.1:*"))(allow network-bind (local ip "127.0.0.1:*"))(allow network-inbound (local ip "127.0.0.1:*"))(allow network* (local unix-socket))(allow network* (remote unix-socket))' /bin/bash -euo pipefail -c '
             if /usr/bin/curl --silent --max-time 10 https://registry.npmjs.org/ > /dev/null; then
               echo "the network is still reachable" >&2
@@ -284,5 +311,8 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31
+        with:
+          extra_nix_config: |
+            sandbox = true
       - run: python3 tests/version-runtime.py
       - run: python3 tests/real-world-runtime.py

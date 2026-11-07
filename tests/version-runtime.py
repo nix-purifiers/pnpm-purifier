@@ -27,9 +27,13 @@ def command(*args, cwd=ROOT, env=None):
 
 
 def main():
+    assert command('nix', 'config', 'show', 'sandbox') == 'true'
     system = command('nix', 'eval', '--impure', '--raw', '--expr', 'builtins.currentSystem')
     print('source:', command('git', 'rev-parse', 'HEAD'), 'system:', system, flush=True)
-    snapshot = json.loads(command('nix', 'flake', 'metadata', '--json', 'path:' + str(ROOT)))['path']
+    snapshot = json.loads(command('nix', 'flake', 'archive', '--json', '--no-update-lock-file', str(ROOT)))['path']
+    assert Path(snapshot).resolve(strict=True).is_dir()
+    assert str(Path(snapshot).resolve()) == snapshot
+    command('nix', 'path-info', '--json', snapshot)
     with tempfile.TemporaryDirectory(prefix='pnpm-version-runtime-') as temporary:
         temporary = Path(temporary)
         (temporary / 'run').mkdir(mode=0o700)
