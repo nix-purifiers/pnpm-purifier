@@ -271,6 +271,8 @@ let
           '';
     in
     stdenv.mkDerivation (finalAttrs: {
+      # The locked registry binds loopback inside the Darwin build sandbox.
+      ${if stdenv.hostPlatform.isDarwin then "__darwinAllowLocalNetworking" else null} = true;
       pname = derivationName project.name;
       version = manifest.version or "0";
       src = filteredSrc;
@@ -355,6 +357,7 @@ let
   # Every project's `test` script, after every project's build script, in
   # one install of the whole workspace.
   tests = stdenv.mkDerivation {
+    ${if stdenv.hostPlatform.isDarwin then "__darwinAllowLocalNetworking" else null} = true;
     name = "${rootName}-tests";
     src = filteredSrc;
     nativeBuildInputs = [
@@ -389,6 +392,7 @@ let
     };
   });
   capture = stdenv.mkDerivation {
+    ${if stdenv.hostPlatform.isDarwin then "__darwinAllowLocalNetworking" else null} = true;
     name = "${rootName}-runtime-graph";
     src = filteredSrc;
     nativeBuildInputs = [
