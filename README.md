@@ -268,7 +268,7 @@ of its scope from the project's `.npmrc`, npm's default registry, and
 `https://npm.jsr.io/` for `@jsr`. A file entry is
 `{ path, url, mirrors, hash }`, where `hash` is the sha512 integrity from
 `pnpm-lock.yaml`. An entry with npm's `os`, `cpu` and `libc` filters
-carries `systems`, the Linux systems the filters admit, and the build
+carries `systems`, the supported systems the filters admit, and the build
 fetches only the entries of its own system. A git entry is
 `{ path, git = { url, rev, submodules = false, leaveDotGit = false, commitObject = null }, hash }`,
 where `hash` is what `nix-prefetch-git` reports, and it carries the
@@ -282,19 +282,29 @@ response as an inline entry `{ path, contents }`, cut down to the versions
 whose tarballs it recorded, so offline the dependency resolves to the same
 versions.
 
+Native checks have passed on x86_64-linux, aarch64-linux and
+aarch64-darwin with Node.js 24.21.0 and the exact pnpm versions 10.34.7,
+11.27.0, 12.9.0 and 12.18.0. These are measured compatibility points,
+not version ranges or coverage of other Node.js versions.
+
 These limits affect a project:
 
-- The Nix build runs on x86_64-linux and aarch64-linux.
+- On Darwin, sandboxed builds request Nix's local-network permission for
+  the locked registry. Executed checks exchange TCP and UDP loopback data
+  and require TCP connections and UDP sends to a TEST-NET IPv4 address
+  to fail with `EPERM` or `EACCES`. This evidence covers those operations
+  inside the build sandbox.
 - A command that resolves versions reads registry metadata, which a
   registry changes each time a package publishes, so it runs online, and
   `pnpm-purifier lock` records the result.
 - A git dependency installs without its submodules, because pnpm clones git
   dependencies without them and the archives of GitHub, GitLab and
   Bitbucket hold none.
-- pnpm 12 checks `pnpm-lock.yaml` against its supply-chain policies with
-  registry metadata and attestations, which change over time. The lock run
-  makes that check online, and the offline modes run pnpm with
-  `trust-lockfile`.
+- pnpm 12 uses registry metadata and attestations for supply-chain policies
+  that can change over time. Locking runs online, where pnpm can apply
+  those policies. Offline modes use `trust-lockfile`: they trust the
+  authored lockfile and do not recheck current registry metadata,
+  attestations or mutable supply-chain policy decisions.
 - The Nix build fetches with Nix, which does not read `.npmrc`. A private
   registry needs a `fetchers.fetchurl` that supplies credentials, such as
   nixpkgs' `fetchurl` with `netrcPhase`. The lock run forwards the
