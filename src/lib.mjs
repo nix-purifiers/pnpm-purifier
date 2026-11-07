@@ -389,7 +389,7 @@ const INSTALLING = new Set(["install", "i", "ci", "fetch", "rebuild", "rb", "dep
 
 // pnpm 12 can install before running scripts and executables. Keep those
 // automatic installs on the same locked registry as an explicit install.
-const SCRIPTING = new Set(["run", "run-script", "test", "t", "tst", "exec"]);
+const SCRIPTING = new Set(["run", "run-script", "test", "t", "tst", "exec", "start", "stop", "restart"]);
 const QUERYING = new Set(["why", "list", "ls", "config", "root", "bin", "store", "audit", "licenses", "doctor", "env", "setup", "completion", "help", "view", "info", "search"]);
 export function needsRegistry(args, scripts = []) {
   const words = [];

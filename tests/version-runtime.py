@@ -82,6 +82,7 @@ def main():
                         'dependencies': {'ms': '2.1.3'}}
             (project / 'package.json').write_text(json.dumps(manifest))
             (project / 'index.js').write_text('#!/usr/bin/env node\nimport assert from "node:assert/strict";import ms from "ms";assert.equal(ms("1h"),3600000);console.log("milliseconds: "+ms("1h"));\n')
+            (project / 'server.js').write_bytes((project / 'index.js').read_bytes())
             (project / 'build.js').write_text('import fs from "node:fs";fs.writeFileSync("built.txt","built\\n");\n')
             ordinary = temporary / f'native-{major}'
             shutil.copytree(project, ordinary)
@@ -108,7 +109,8 @@ def main():
                 # fail: only the purifier's locked mirror can supply ms.
                 cold_cases = [('exec-version', ['exec', 'node', '--version']),
                               ('script-help', ['run', 'build', '--', '--help']),
-                              ('declared-script', ['build'])]
+                              ('declared-script', ['build']),
+                              ('fallback-start', ['start'])]
                 for label, arguments in cold_cases:
                     shutil.rmtree(project / 'node_modules')
                     purifier_store = temporary / ('cold-wrapper-' + label)
@@ -120,6 +122,8 @@ def main():
                     output = command(cli, *arguments, cwd=project, env=cold_env)
                     if label == 'exec-version':
                         assert 'v24.21.0' in output, output
+                    elif label == 'fallback-start':
+                        assert 'milliseconds: 3600000' in output, output
                     assert_store(project, purifier_store)
                     assert (project / 'node_modules/ms/package.json').is_file()
                     assert (project / 'pnpm-lock.yaml').read_bytes() == lock_before
