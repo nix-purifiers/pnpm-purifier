@@ -90,6 +90,19 @@ in
   current-script-installs = import ./script-installs.nix {
     inherit pkgs buildPnpmProject;
   };
+  # Run actual sockets in the same derivation that installs and tests a workspace.
+  builder-loopback =
+    let
+      enabled = workspace.tests;
+      disabled = enabled.overrideAttrs { __darwinAllowLocalNetworking = false; };
+    in
+    assert !pkgs.stdenv.hostPlatform.isDarwin || enabled.__darwinAllowLocalNetworking;
+    assert !pkgs.stdenv.hostPlatform.isDarwin || !disabled.__darwinAllowLocalNetworking;
+    assert pkgs.stdenv.hostPlatform.isDarwin || !(enabled ? __darwinAllowLocalNetworking);
+    enabled.overrideAttrs (previous: {
+      name = "pnpm-builder-loopback";
+      preBuild = (previous.preBuild or "") + "${pkgs.python3}/bin/python3 ${./loopback.py}\n";
+    });
   composition-producer = greet;
   composition-repository = workspace.projections.npm;
 
