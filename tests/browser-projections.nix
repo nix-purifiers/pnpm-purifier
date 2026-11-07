@@ -82,7 +82,14 @@ pkgs.runCommand "browser-webjar-ordinary-consumers"
       }
     }
     GRADLE
-    gradle --offline --no-daemon verify
+    ${pkgs.lib.optionalString pkgs.stdenv.hostPlatform.isDarwin ''
+      # Use the verified IPv4 transport for Gradle's Darwin sandbox IPC.
+      export JAVA_TOOL_OPTIONS="''${JAVA_TOOL_OPTIONS:+$JAVA_TOOL_OPTIONS }-Djava.net.preferIPv4Stack=true"
+      export JAVA_HOME=${pkgs.lib.escapeShellArg pkgs.jdk.home}
+      "$JAVA_HOME/bin/java" -XshowSettings:properties -version 2> java-network-properties.log
+      cat java-network-properties.log
+      grep -Eq '^[[:space:]]*java.net.preferIPv4Stack = true$' java-network-properties.log
+    ''}gradle --offline --no-daemon verify
     test -n "$(find ${built.projections.ivy} -name '*.jar')"
     touch $out
   ''
