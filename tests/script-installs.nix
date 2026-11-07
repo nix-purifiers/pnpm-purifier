@@ -9,6 +9,7 @@ let
 in
 pkgs.runCommand "pnpm-current-cold-script-installs"
   {
+    ${if pkgs.stdenv.hostPlatform.isDarwin then "__darwinAllowLocalNetworking" else null} = true;
     nativeBuildInputs = [
       pkgs.python3
       pkgs.nodejs
@@ -22,6 +23,7 @@ pkgs.runCommand "pnpm-current-cold-script-installs"
     PNPM_TEST_SYSTEM = pkgs.stdenv.hostPlatform.system;
   }
   ''
+    ${pkgs.python3}/bin/python3 ${./loopback.py}
     export PNPM_TEST_RESULTS="$out"
     python ${./script-installs.py}
   ''

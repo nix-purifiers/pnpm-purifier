@@ -2,12 +2,14 @@
 { pkgs, projection }:
 pkgs.runCommand "ordinary-resource-consumers"
   {
+    ${if pkgs.stdenv.hostPlatform.isDarwin then "__darwinAllowLocalNetworking" else null} = true;
     nativeBuildInputs = [
       pkgs.python3
       pkgs.jdk
     ];
   }
   ''
+    ${pkgs.python3}/bin/python3 ${./loopback.py}
     python - <<'PY'
     import functools, hashlib, http.server, json, pathlib, threading, urllib.request
     root = pathlib.Path('${projection}')

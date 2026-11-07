@@ -295,12 +295,14 @@ in
   publish =
     pkgs.runCommand "publish"
       {
+        ${if pkgs.stdenv.hostPlatform.isDarwin then "__darwinAllowLocalNetworking" else null} = true;
         nativeBuildInputs = [
           pkgs.nodejs
           workspace.pnpm
         ];
       }
       ''
+        ${pkgs.python3}/bin/python3 ${./loopback.py}
         export HOME="$TMPDIR/home" XDG_RUNTIME_DIR="$TMPDIR/run"
         mkdir -p "$HOME" "$XDG_RUNTIME_DIR"
         [ "$(ls ${workspace.release})" = example-greet-1.0.0.tgz ]
