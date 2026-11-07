@@ -769,7 +769,9 @@ async function interactive(args) {
     console.error(`pnpm-purifier: \`pnpm ${args.join(" ")}\` resolves versions from registry metadata, so it runs online`);
     process.exit(await online(root, args));
   }
-  if (!needsRegistry(args)) process.exit(await run(pnpmCommand(root), args, {}));
+  const packageFile = path.join(root, "package.json");
+  const scripts = fs.existsSync(packageFile) ? Object.keys(JSON.parse(fs.readFileSync(packageFile, "utf8")).scripts ?? {}) : [];
+  if (!needsRegistry(args, scripts)) process.exit(await run(pnpmCommand(root), args, {}));
   const offline =
     process.env.PNPM_PURIFIER !== "0" && fs.existsSync(toolLockfilePath(root)) && readLock(root);
   if (!offline) process.exit(await run(pnpmCommand(root), args, {}));
@@ -777,8 +779,8 @@ async function interactive(args) {
   const { code, misses } = await execWithManifest(manifest, registriesFile, [pnpmCommand(root), ...args], { inPlace: root });
   if (code !== 0 && [...misses].some(isMetadataPath)) {
     console.error(
-      "pnpm-purifier: pnpm asked for registry metadata, which it reads only to resolve versions, " +
-        "for example after package.json changed. Run the command with the network: " +
+      "pnpm-purifier: pnpm asked for registry metadata that the lock does not hold, " +
+        "for example to resolve versions or check mutable registry policy. Run the command with the network: " +
         `\`pnpm-purifier --online ${args.join(" ")}\`, which also locks again.`,
     );
   }

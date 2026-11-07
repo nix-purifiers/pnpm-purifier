@@ -1,0 +1,12 @@
+{
+  "name": "script-workspace",
+  "private": true,
+  "packageManager": "pnpm@12.18.0",
+  "scripts": {
+    "build": "node check.cjs",
+    "test": "node check.cjs"
+  },
+  "dependencies": {
+    "ms": "2.0.0"
+  }
+}

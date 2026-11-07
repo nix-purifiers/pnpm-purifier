@@ -213,7 +213,7 @@ test("isMetadataPath is true for package names under a registry host only", () =
 });
 
 test("isResolving tells resolving commands from offline ones", () => {
-  for (const args of [["add", "ms"], ["update"], ["up", "--latest"], ["remove", "ms"], ["install", "ms"], ["i", "-D", "ms"], ["--filter", "x", "add", "y"]]) {
+  for (const args of [["add", "ms"], ["update"], ["up", "--latest"], ["remove", "ms"], ["install", "ms"], ["i", "-D", "ms"], ["--filter", "x", "add", "y"], ["--filter-prod", "x", "add", "y"]]) {
     assert.equal(isResolving(args), true, args.join(" "));
   }
   for (const args of [[], ["install"], ["i", "--frozen-lockfile"], ["run", "build"], ["test"], ["exec", "tsc"], ["-r", "run", "build"]]) {
@@ -221,13 +221,23 @@ test("isResolving tells resolving commands from offline ones", () => {
   }
 });
 
-test("needsRegistry is true for installing commands only", () => {
-  for (const args of [[], ["install"], ["i", "--frozen-lockfile"], ["--filter", "x", "install"], ["deploy", "out"], ["rebuild"]]) {
+test("needsRegistry covers explicit and automatic script installs", () => {
+  for (const args of [[], ["install"], ["i", "--frozen-lockfile"], ["--filter", "x", "install"], ["deploy", "out"], ["rebuild"], ["run", "build"], ["test"], ["exec", "tsc"], ["-r", "build"], ["--filter", "x", "build"]]) {
     assert.equal(needsRegistry(args), true, args.join(" "));
   }
-  for (const args of [["run", "build"], ["test"], ["exec", "tsc"], ["build"], ["-r", "run", "build"], ["why", "ms"]]) {
+  for (const args of [["build"], ["why", "ms"], ["--filter", "x", "why", "ms"], ["--version"], ["run", "--help"]]) {
     assert.equal(needsRegistry(args), false, args.join(" "));
   }
+  assert.equal(needsRegistry(["build"], ["build"]), true);
+  assert.equal(needsRegistry(["exec", "node", "--version"]), true);
+  assert.equal(needsRegistry(["exec", "--", "node", "--version"]), true);
+  assert.equal(needsRegistry(["run", "build", "--", "--help"]), true);
+  assert.equal(needsRegistry(["build", "--help"], ["build"]), true);
+  assert.equal(needsRegistry(["run", "--filter", "member", "member-only"]), true);
+  assert.equal(needsRegistry(["--filter-prod", "member", "run", "member-only"]), true);
+  assert.equal(needsRegistry(["exec", "--filter", "member", "node", "--version"]), true);
+  assert.equal(needsRegistry(["--version", "run", "build"]), false);
+  assert.equal(needsRegistry(["why", "ms"], ["why"]), false);
 });
 
 test("canonicalJSON sorts keys and leaves out whitespace, as builtins.toJSON does", () => {
