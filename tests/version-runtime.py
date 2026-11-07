@@ -7,6 +7,7 @@ prefetches, installs, builds and tests, mutates dependencies, then builds the
 same project in Nix's sandbox. No node_modules or pnpm store is shared between
 native and purifier installs.
 """
+import argparse
 import json
 import os
 from pathlib import Path
@@ -27,6 +28,10 @@ def command(*args, cwd=ROOT, env=None):
 
 
 def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--current-only', action='store_true',
+                        help='Run only the exact maintained pnpm 12.18.0 lane')
+    options = parser.parse_args()
     assert command('nix', 'config', 'show', 'sandbox') == 'true'
     system = command('nix', 'eval', '--impure', '--raw', '--expr', 'builtins.currentSystem')
     print('source:', command('git', 'rev-parse', 'HEAD'), 'system:', system, flush=True)
@@ -50,11 +55,15 @@ def main():
         sdk = Path(command('nix', 'build', '--impure', '--expr', prefix + 'p.nodejs', '--out-link', temporary / 'node', '--print-out-paths', env=env))
         env['PATH'] = str(sdk / 'bin') + ':' + env['PATH']
         print('Node:', command(sdk / 'bin/node', '--version', env=env), flush=True)
-        for major in (10, 11, 12):
-            native = Path(command('nix', 'build', '--impure', '--expr', prefix + f'p.pnpm_{major}', '--out-link', temporary / f'pnpm-{major}', '--print-out-paths', env=env)) / 'bin/pnpm'
+        for major in (("current",) if options.current_only else (10, 11, 12)):
+            sdk_expression = (
+                'p.callPackage (builtins.getEnv "PNPM_RUNTIME_SOURCE" + "/tests/current-pnpm.nix") {}'
+                if major == 'current' else f'p.pnpm_{major}')
+            native = Path(command('nix', 'build', '--impure', '--expr', prefix + sdk_expression, '--out-link', temporary / f'pnpm-{major}', '--print-out-paths', env=env)) / 'bin/pnpm'
             version = command(native, '--version', env=env)
-            assert version.split('.')[0] == str(major), version
+            assert version == '12.18.0' if major == 'current' else version.split('.')[0] == str(major), version
             print('pnpm lane:', version, flush=True)
+            env['PNPM_PURIFIER_PNPM'] = str(native)
             project = temporary / f'project-{major}'
             project.mkdir()
             manifest = {'name': 'version-probe', 'version': '1.0.0', 'type': 'module',
@@ -90,7 +99,8 @@ def main():
                 assert 'milliseconds: 3600000' in command(tool, 'test', cwd=project, env=env)
             before = (project / 'pnpm-lock.yaml').read_bytes()
             env['PNPM_RUNTIME_PROJECT'] = str(project)
-            expression = prefix + '(p.pnpm-purifier.buildPnpmProject {src=/. + builtins.getEnv "PNPM_RUNTIME_PROJECT";}).packages.version-probe'
+            expression = prefix + '(p.pnpm-purifier.buildPnpmProject {src=/. + builtins.getEnv "PNPM_RUNTIME_PROJECT";pnpm=' + sdk_expression + ';}).packages.version-probe'
+            env['PNPM_PURIFIER_PNPM'] = str(native)
             installed = Path(command('nix', 'build', '--impure', '--expr', expression, '--out-link', temporary / f'pure-{major}', '--print-out-paths', env=env))
             assert command(installed / 'bin/version-probe', env=env) == 'milliseconds: 3600000'
             assert (project / 'pnpm-lock.yaml').read_bytes() == before

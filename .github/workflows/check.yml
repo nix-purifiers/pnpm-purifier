@@ -54,7 +54,7 @@ jobs:
           test "$(cat evidence/sandbox-setting)" = true
           git rev-parse HEAD > evidence/source-revision
           cp flake.lock evidence/flake.lock
-          for check in version-runtime-10 version-runtime-11 version-runtime-12 real-world fixture-tests; do
+          for check in version-runtime-10 version-runtime-11 version-runtime-12 version-runtime-current real-world fixture-tests; do
             nix build --option sandbox true --no-link --json ".#checks.$system.$check" > "evidence/$check.json"
             drv=$(nix eval --raw ".#checks.$system.$check.drvPath")
             nix derivation show "$drv" > "evidence/$check.drv.json"
@@ -66,6 +66,8 @@ jobs:
           name: runtime-derivations-${{ matrix.runner }}
           path: evidence/
           retention-days: 30
+      - name: Exercise the maintained pnpm point with independent native installs
+        run: python3 tests/version-runtime.py --current-only
       - name: Evaluate the checks for every system
         run: nix flake check --all-systems --no-build
 
