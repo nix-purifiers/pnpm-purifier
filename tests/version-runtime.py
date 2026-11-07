@@ -92,23 +92,44 @@ def main():
             expected = command(native, 'test', cwd=ordinary, env=native_env)
             assert 'milliseconds: 3600000' in expected, expected
             assert_store(ordinary, temporary / f'native-store-{major}')
-            env.update(pnpm_config_store_dir=str(temporary / f'purifier-store-{major}'),
-                       npm_config_store_dir=str(temporary / f'purifier-store-{major}'))
+            purifier_store = temporary / f'purifier-store-{major}'
+            env.update(pnpm_config_store_dir=str(purifier_store),
+                       npm_config_store_dir=str(purifier_store))
             command(cli, 'lock', cwd=project, env=env)
             command(cli, 'prefetch', cwd=project, env=env)
-            command(cli, 'install', '--frozen-lockfile', '--store-dir', temporary / f'purifier-store-{major}', cwd=project, env=env)
+            command(cli, 'install', '--frozen-lockfile', '--store-dir', purifier_store, cwd=project, env=env)
             command(cli, 'run', 'build', cwd=project, env=env)
             actual = command(cli, 'test', cwd=project, env=env)
             assert 'milliseconds: 3600000' in actual, actual
-            assert_store(project, temporary / f'purifier-store-{major}')
+            assert_store(project, purifier_store)
             assert (ordinary / 'built.txt').read_bytes() == (project / 'built.txt').read_bytes()
             if major == 'current':
-                shutil.rmtree(project / 'node_modules')
-                command(cli, 'build', cwd=project, env=env)
-                assert 'milliseconds: 3600000' in command(cli, 'test', cwd=project, env=env)
-            command(cli, 'add', 'picocolors@1.1.0', '--save-exact', '--store-dir', temporary / f'purifier-store-{major}', cwd=project, env=env)
+                # An unreachable configured registry makes a routing bypass
+                # fail: only the purifier's locked mirror can supply ms.
+                cold_cases = [('exec-version', ['exec', 'node', '--version']),
+                              ('script-help', ['run', 'build', '--', '--help']),
+                              ('declared-script', ['build'])]
+                for label, arguments in cold_cases:
+                    shutil.rmtree(project / 'node_modules')
+                    purifier_store = temporary / ('cold-wrapper-' + label)
+                    assert not purifier_store.exists()
+                    lock_before = (project / 'pnpm-lock.yaml').read_bytes()
+                    cold_env = dict(env, pnpm_config_store_dir=str(purifier_store),
+                                    npm_config_store_dir=str(purifier_store),
+                                    pnpm_config_registry='http://127.0.0.1:9/')
+                    output = command(cli, *arguments, cwd=project, env=cold_env)
+                    if label == 'exec-version':
+                        assert 'v24.21.0' in output, output
+                    assert_store(project, purifier_store)
+                    assert (project / 'node_modules/ms/package.json').is_file()
+                    assert (project / 'pnpm-lock.yaml').read_bytes() == lock_before
+                    env.update(pnpm_config_store_dir=str(purifier_store),
+                               npm_config_store_dir=str(purifier_store))
+                    assert 'milliseconds: 3600000' in command(cli, 'test', cwd=project, env=env)
+                    print('PASS actual wrapper cold route', label, flush=True)
+            command(cli, 'add', 'picocolors@1.1.0', '--save-exact', '--store-dir', purifier_store, cwd=project, env=env)
             assert json.loads((project / 'package.json').read_text())['dependencies']['picocolors'] == '1.1.0'
-            command(cli, 'remove', 'picocolors', '--store-dir', temporary / f'purifier-store-{major}', cwd=project, env=env)
+            command(cli, 'remove', 'picocolors', '--store-dir', purifier_store, cwd=project, env=env)
             assert 'picocolors' not in json.loads((project / 'package.json').read_text())['dependencies']
             command(cli, 'prefetch', cwd=project, env=env)
             # Switch the same working tree to native pnpm and back, each time
