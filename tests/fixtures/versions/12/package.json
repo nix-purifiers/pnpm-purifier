@@ -1,0 +1,16 @@
+{
+  "name": "version-probe",
+  "version": "1.0.0",
+  "type": "module",
+  "packageManager": "pnpm@12.9.0",
+  "bin": {
+    "version-probe": "index.js"
+  },
+  "scripts": {
+    "build": "node build.js",
+    "test": "node index.js"
+  },
+  "dependencies": {
+    "ms": "^2.0.0"
+  }
+}

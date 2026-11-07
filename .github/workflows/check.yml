@@ -2,7 +2,7 @@
 #
 # The flake's checks and the purifier contract's conformance jobs, on
 # pushes to main and on pull requests, each on x86_64-linux and
-# aarch64-linux runners.
+# aarch64-linux and aarch64-darwin runners.
 #
 #   check                 builds every flake check (the fixtures, the
 #                         sandboxable conformance checks, the unit tests and
@@ -31,13 +31,36 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        runner: [ubuntu-latest, ubuntu-24.04-arm]
+        runner: [ubuntu-latest, ubuntu-24.04-arm, macos-26]
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31
       - name: Build and run the checks
         run: nix flake check -L
+      - name: Record executable check derivations and outputs
+        run: |
+          set -euo pipefail
+          system=$(nix eval --impure --raw --expr builtins.currentSystem)
+          if [ "$RUNNER_OS" = macOS ]; then
+            test "$(uname -m)" = arm64
+            test "$system" = aarch64-darwin
+          fi
+          mkdir -p evidence
+          git rev-parse HEAD > evidence/source-revision
+          cp flake.lock evidence/flake.lock
+          for check in version-runtime-10 version-runtime-11 version-runtime-12 real-world fixture-tests; do
+            nix build --no-link --json ".#checks.$system.$check" > "evidence/$check.json"
+            drv=$(nix eval --raw ".#checks.$system.$check.drvPath")
+            nix derivation show "$drv" > "evidence/$check.drv.json"
+            output=$(nix eval --raw ".#checks.$system.$check.outPath")
+            nix path-info --json "$output" > "evidence/$check.output.json"
+          done
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: runtime-derivations-${{ matrix.runner }}
+          path: evidence/
+          retention-days: 30
       - name: Evaluate the checks for every system
         run: nix flake check --all-systems --no-build
 
@@ -45,7 +68,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        runner: [ubuntu-latest, ubuntu-24.04-arm]
+        runner: [ubuntu-latest, ubuntu-24.04-arm, macos-26]
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -83,7 +106,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        runner: [ubuntu-latest, ubuntu-24.04-arm]
+        runner: [ubuntu-latest, ubuntu-24.04-arm, macos-26]
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -127,7 +150,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        runner: [ubuntu-latest, ubuntu-24.04-arm]
+        runner: [ubuntu-latest, ubuntu-24.04-arm, macos-26]
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -191,10 +214,61 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        runner: [ubuntu-latest, ubuntu-24.04-arm]
+        runner: [ubuntu-latest, ubuntu-24.04-arm, macos-26]
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31
       - run: python3 tests/composition-native.py
+
+  conformance-darwin-offline:
+    runs-on: macos-26
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31
+      - name: Verify native Darwin and prefetch
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = arm64
+          test "$(nix eval --impure --raw --expr builtins.currentSystem)" = aarch64-darwin
+          git rev-parse HEAD
+          /usr/bin/curl --fail --silent --max-time 30 https://registry.npmjs.org/ > /dev/null
+          cp -r tests/fixtures/workspace "$RUNNER_TEMP/project"
+          cd "$RUNNER_TEMP/project"
+          nix run "$GITHUB_WORKSPACE" -- lock
+          nix run "$GITHUB_WORKSPACE" -- prefetch
+      - name: Install, build, test and run with external network denied
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/project"
+          rm -rf node_modules packages/app/node_modules packages/greet/node_modules
+          # Children retain loopback for the locked registry and Unix sockets
+          # for Nix. The daemon is separate: forbid its substitutes explicitly.
+          export NIX_CONFIG=$'substituters =\nconnect-timeout = 1'
+          sandbox-exec -p '(version 1)(allow default)(deny network*)(allow network* (remote ip "localhost:*"))(allow network* (local ip "localhost:*"))(allow network* (local unix-socket))(allow network* (remote unix-socket))' /bin/bash -euo pipefail -c '
+            if /usr/bin/curl --silent --max-time 10 https://registry.npmjs.org/ > /dev/null; then
+              echo "the network is still reachable" >&2
+              exit 1
+            fi
+            purifier=.pnpm-purifier/command/bin/pnpm-purifier
+            test ! -e "$RUNNER_TEMP/offline-fresh-store"
+            "$purifier" install --frozen-lockfile --store-dir "$RUNNER_TEMP/offline-fresh-store"
+            "$purifier" --recursive run build
+            "$purifier" --recursive test
+            .pnpm-purifier/node/bin/node packages/app/dist/main.js offline | grep -F "Hello, "
+          '
+
+  version-runtime:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-latest, ubuntu-24.04-arm, macos-26]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31
+      - run: python3 tests/version-runtime.py
+      - run: python3 tests/real-world-runtime.py

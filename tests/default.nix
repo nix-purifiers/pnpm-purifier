@@ -409,3 +409,31 @@ in
       touch $out
     '';
 }
+
+// builtins.listToAttrs (
+  map
+    (
+      major:
+      let
+        project = build { src = ./fixtures/versions + "/${toString major}"; };
+        installed = project.packages.version-probe;
+      in
+      {
+        name = "version-runtime-${toString major}";
+        value = pkgs.runCommand "pnpm-${toString major}-runtime" { } ''
+          mkdir -p $out
+          ${pkgs.nodejs}/bin/node --version > $out/node-version
+          ${pkgs.${"pnpm_${toString major}"}}/bin/pnpm --version > $out/pnpm-version
+          ${installed.artifacts.bin.version-probe} | tee $out/result
+          grep -Fx 'milliseconds: 3600000' $out/result
+          test "$(cat ${installed}/lib/node_modules/version-probe/built.txt)" = built
+          test -e ${project.tests}
+        '';
+      }
+    )
+    [
+      10
+      11
+      12
+    ]
+)
