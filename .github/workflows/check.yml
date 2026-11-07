@@ -276,7 +276,7 @@ jobs:
           export NIX_CONFIG=$'substituters =\nconnect-timeout = 1'
           # Expand variables in the child shell.
           # shellcheck disable=SC2016
-          sandbox-exec -p '(version 1)(allow default)(deny network*)(allow network-outbound (remote ip "127.0.0.1:*"))(allow network-bind (local ip "127.0.0.1:*"))(allow network-inbound (local ip "127.0.0.1:*"))(allow network* (local unix-socket))(allow network* (remote unix-socket))' /bin/bash -euo pipefail -c '
+          sandbox-exec -p '(version 1)(allow default)(deny network*)(allow network-outbound (remote ip "localhost:*"))(allow network-bind (local ip "localhost:*"))(allow network-inbound (local ip "localhost:*"))(allow network* (local unix-socket))(allow network* (remote unix-socket))' /bin/bash -euo pipefail -c '
             if /usr/bin/curl --silent --max-time 10 https://registry.npmjs.org/ > /dev/null; then
               echo "the network is still reachable" >&2
               exit 1
