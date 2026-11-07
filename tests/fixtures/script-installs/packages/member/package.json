@@ -1,0 +1,13 @@
+{
+  "name": "script-member",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "build": "node check.cjs",
+    "test": "node check.cjs",
+    "member-only": "node check.cjs"
+  },
+  "dependencies": {
+    "ms": "2.0.0"
+  }
+}

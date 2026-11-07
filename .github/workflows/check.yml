@@ -54,7 +54,7 @@ jobs:
           test "$(cat evidence/sandbox-setting)" = true
           git rev-parse HEAD > evidence/source-revision
           cp flake.lock evidence/flake.lock
-          for check in version-runtime-10 version-runtime-11 version-runtime-12 version-runtime-current real-world fixture-tests; do
+          for check in version-runtime-10 version-runtime-11 version-runtime-12 version-runtime-current current-script-installs real-world fixture-tests; do
             nix build --option sandbox true --no-link --json ".#checks.$system.$check" > "evidence/$check.json"
             drv=$(nix eval --raw ".#checks.$system.$check.drvPath")
             nix derivation show "$drv" > "evidence/$check.drv.json"

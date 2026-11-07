@@ -366,7 +366,7 @@ const RESOLVING = new Set(["add", "update", "up", "upgrade", "remove", "rm", "un
 
 // The options of pnpm that take a value as the next argument, when the value
 // is not joined with "=".
-const VALUE_OPTIONS = new Set(["--filter", "-F", "--dir", "-C", "--store-dir", "--reporter", "--loglevel", "--workspace-dir", "--lockfile-dir"]);
+const VALUE_OPTIONS = new Set(["--filter", "--filter-prod", "-F", "--dir", "-C", "--store-dir", "--reporter", "--loglevel", "--workspace-dir", "--lockfile-dir"]);
 
 // Whether pnpm arguments resolve versions: a resolving command, or
 // `install` naming packages (`pnpm install ms` adds ms). The first argument
@@ -387,17 +387,26 @@ export function isResolving(args) {
 // read through the local registry. `pnpm` without a command installs.
 const INSTALLING = new Set(["install", "i", "ci", "fetch", "rebuild", "rb", "deploy", "import", "prune"]);
 
-// Whether pnpm arguments install packages. Other commands (run, test,
-// exec, a script name, ...) download nothing, so they run without the
-// local registry.
-export function needsRegistry(args) {
-  if (args.some((arg) => ["--version", "-v", "--help", "-h"].includes(arg))) return false;
+// pnpm 12 can install before running scripts and executables. Keep those
+// automatic installs on the same locked registry as an explicit install.
+const SCRIPTING = new Set(["run", "run-script", "test", "t", "tst", "exec"]);
+const QUERYING = new Set(["why", "list", "ls", "config", "root", "bin", "store", "audit", "licenses", "doctor", "env", "setup", "completion", "help", "view", "info", "search"]);
+export function needsRegistry(args, scripts = []) {
   const words = [];
+  let childArguments = false;
   for (let i = 0; i < args.length; i++) {
-    if (VALUE_OPTIONS.has(args[i])) i++;
-    else if (!args[i].startsWith("-")) words.push(args[i]);
+    const arg = args[i];
+    if (!childArguments && VALUE_OPTIONS.has(arg)) i++;
+    else if (arg === "--") childArguments = true;
+    else if (!childArguments && ["--version", "-v", "--help", "-h"].includes(arg)
+      && (words.length === 0 || (words.length === 1 && (SCRIPTING.has(words[0]) || INSTALLING.has(words[0]))))) return false;
+    else if (!arg.startsWith("-")) words.push(arg);
   }
-  return words.length === 0 || INSTALLING.has(words[0]);
+  const command = words[0];
+  if (command == null) return true;
+  if (QUERYING.has(command)) return false;
+  const scoped = args.some((arg) => arg === "-r" || arg === "--recursive" || arg === "-F" || arg.startsWith("--filter") || arg.startsWith("-F"));
+  return INSTALLING.has(command) || SCRIPTING.has(command) || scripts.includes(command) || scoped;
 }
 
 // A value as JSON in the form Nix's builtins.toJSON writes: object keys in

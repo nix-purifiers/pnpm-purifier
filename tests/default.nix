@@ -87,6 +87,9 @@ in
     build = buildPnpmProject;
   };
   inherit cli;
+  current-script-installs = import ./script-installs.nix {
+    inherit pkgs buildPnpmProject;
+  };
   composition-producer = greet;
   composition-repository = workspace.projections.npm;
 

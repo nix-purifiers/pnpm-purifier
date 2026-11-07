@@ -10,6 +10,7 @@ native and purifier installs.
 import argparse
 import json
 import os
+import re
 from pathlib import Path
 import shlex
 import shutil
@@ -25,6 +26,15 @@ def command(*args, cwd=ROOT, env=None):
     print(result.stdout, end='', flush=True)
     result.check_returncode()
     return result.stdout.strip()
+
+
+def assert_store(project, expected):
+    text = (project / 'node_modules/.modules.yaml').read_text()
+    try:
+        actual = json.loads(text)['storeDir']
+    except json.JSONDecodeError:
+        actual = re.search(r'^storeDir: (.+)$', text, re.MULTILINE)[1].strip('"\'')
+    assert Path(actual).resolve().is_relative_to(expected.resolve()), actual
 
 
 def main():
@@ -75,17 +85,27 @@ def main():
             (project / 'build.js').write_text('import fs from "node:fs";fs.writeFileSync("built.txt","built\\n");\n')
             ordinary = temporary / f'native-{major}'
             shutil.copytree(project, ordinary)
-            command(native, 'install', '--store-dir', temporary / f'native-store-{major}', cwd=ordinary, env=env)
-            command(native, 'run', 'build', cwd=ordinary, env=env)
-            expected = command(native, 'test', cwd=ordinary, env=env)
+            native_env = dict(env, pnpm_config_store_dir=str(temporary / f'native-store-{major}'),
+                              npm_config_store_dir=str(temporary / f'native-store-{major}'))
+            command(native, 'install', '--store-dir', temporary / f'native-store-{major}', cwd=ordinary, env=native_env)
+            command(native, 'run', 'build', cwd=ordinary, env=native_env)
+            expected = command(native, 'test', cwd=ordinary, env=native_env)
             assert 'milliseconds: 3600000' in expected, expected
+            assert_store(ordinary, temporary / f'native-store-{major}')
+            env.update(pnpm_config_store_dir=str(temporary / f'purifier-store-{major}'),
+                       npm_config_store_dir=str(temporary / f'purifier-store-{major}'))
             command(cli, 'lock', cwd=project, env=env)
             command(cli, 'prefetch', cwd=project, env=env)
             command(cli, 'install', '--frozen-lockfile', '--store-dir', temporary / f'purifier-store-{major}', cwd=project, env=env)
             command(cli, 'run', 'build', cwd=project, env=env)
             actual = command(cli, 'test', cwd=project, env=env)
             assert 'milliseconds: 3600000' in actual, actual
+            assert_store(project, temporary / f'purifier-store-{major}')
             assert (ordinary / 'built.txt').read_bytes() == (project / 'built.txt').read_bytes()
+            if major == 'current':
+                shutil.rmtree(project / 'node_modules')
+                command(cli, 'build', cwd=project, env=env)
+                assert 'milliseconds: 3600000' in command(cli, 'test', cwd=project, env=env)
             command(cli, 'add', 'picocolors@1.1.0', '--save-exact', '--store-dir', temporary / f'purifier-store-{major}', cwd=project, env=env)
             assert json.loads((project / 'package.json').read_text())['dependencies']['picocolors'] == '1.1.0'
             command(cli, 'remove', 'picocolors', '--store-dir', temporary / f'purifier-store-{major}', cwd=project, env=env)
@@ -95,8 +115,11 @@ def main():
             # with fresh modules/stores and a frozen tool lockfile.
             for tool, label in ((native, 'native-switch'), (cli, 'purifier-switch')):
                 shutil.rmtree(project / 'node_modules')
-                command(tool, 'install', '--frozen-lockfile', '--store-dir', temporary / f'{label}-{major}', cwd=project, env=env)
-                assert 'milliseconds: 3600000' in command(tool, 'test', cwd=project, env=env)
+                switched_env = dict(env, pnpm_config_store_dir=str(temporary / f'{label}-{major}'),
+                                    npm_config_store_dir=str(temporary / f'{label}-{major}'))
+                command(tool, 'install', '--frozen-lockfile', '--store-dir', temporary / f'{label}-{major}', cwd=project, env=switched_env)
+                assert 'milliseconds: 3600000' in command(tool, 'test', cwd=project, env=switched_env)
+                assert_store(project, temporary / f'{label}-{major}')
             before = (project / 'pnpm-lock.yaml').read_bytes()
             env['PNPM_RUNTIME_PROJECT'] = str(project)
             expression = prefix + '(p.pnpm-purifier.buildPnpmProject {src=/. + builtins.getEnv "PNPM_RUNTIME_PROJECT";pnpm=' + sdk_expression + ';}).packages.version-probe'
