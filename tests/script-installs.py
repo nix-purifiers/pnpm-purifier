@@ -87,6 +87,7 @@ def check_state(project, store, before):
 
 cases = [
     ['run', 'build'], ['run-script', 'build'], ['test'], ['t'], ['tst'], ['start'],
+    ['test', '--help'], ['start', '--help'], ['start', '--version'],
     ['exec', 'node', 'check.cjs'], ['exec', 'node', '--version'],
     ['run', 'build', '--', '--help'], ['build'], ['-r', 'run', 'member-only'],
     ['--filter', 'script-member', 'member-only'],
@@ -108,7 +109,7 @@ receipts = []
 try:
     for index, args in enumerate(cases):
         before = (source / 'pnpm-lock.yaml').read_bytes()
-        if args == ['start']:
+        if args and args[0] == 'start':
             assert 'start' not in json.loads((source / 'package.json').read_text())['scripts']
         native, native_store, native_env = prepare('native-' + str(index))
         native_env['pnpm_config_registry'] = 'http://127.0.0.1:' + str(server.server_port)
