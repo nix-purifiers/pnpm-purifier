@@ -229,6 +229,10 @@ test("needsRegistry covers explicit and automatic script installs", () => {
     assert.equal(needsRegistry(args), false, args.join(" "));
   }
   assert.equal(needsRegistry(["build"], ["build"]), true);
+  for (const alias of ["start", "stop", "restart"]) {
+    assert.equal(needsRegistry([alias]), true);
+    assert.equal(needsRegistry([alias, "--help"]), false);
+  }
   assert.equal(needsRegistry(["exec", "node", "--version"]), true);
   assert.equal(needsRegistry(["exec", "--", "node", "--version"]), true);
   assert.equal(needsRegistry(["run", "build", "--", "--help"]), true);
