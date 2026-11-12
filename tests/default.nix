@@ -113,7 +113,7 @@ in
       buildWithOnly12 = lib.callPackageWith (removeAttrs pkgs [
         "pnpm_10"
         "pnpm_11"
-      ]) ../nix/lib/build-pnpm-project.nix { inherit purifier; };
+      ]) ../pkgs/build-pnpm-project/default.nix { inherit purifier; };
       restricted = buildWithOnly12 { src = ./fixtures/workspace; };
       missing = buildPnpmProject.override { pnpm_12 = null; };
       explicit = missing {

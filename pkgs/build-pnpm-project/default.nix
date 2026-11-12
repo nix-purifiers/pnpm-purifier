@@ -94,7 +94,7 @@ let
 
   # The lock in memory (read-lock.nix), which fails evaluation through the
   # library's checkLock when the lockfiles cannot be used.
-  readLock = import ./read-lock.nix { inherit purifier; };
+  readLock = import ../../lib-overlays/default/read-lock.nix { inherit purifier; };
   lock = purifier.checkLock (readLock {
     providedNames = inputSelection.names;
     providedVersions = inputSelection.versions;
