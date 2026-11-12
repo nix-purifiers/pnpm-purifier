@@ -82,6 +82,18 @@ let
     };
 in
 {
+  hoisted-lifecycle =
+    (build {
+      src = ./fixtures/hoisted-lifecycle;
+      pnpm = pkgs.pnpm_10;
+    }).tests.overrideAttrs
+      (_: {
+        installPhase = ''
+          mkdir -p "$out"
+          cp prepared.json resolved.txt "$out/"
+        '';
+      });
+
   browser-projections = import ./browser-projections.nix {
     inherit pkgs;
     build = buildPnpmProject;

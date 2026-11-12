@@ -1,0 +1,13 @@
+{
+  "name": "hoisted-lifecycle",
+  "version": "1.0.0",
+  "private": true,
+  "packageManager": "pnpm@10.34.7",
+  "scripts": {
+    "prepare": "semver 1.2.3 --range '^1.0.0' > resolved.txt && node prepare.cjs",
+    "test": "node check.cjs"
+  },
+  "devDependencies": {
+    "semver": "7.7.3"
+  }
+}
