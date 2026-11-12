@@ -182,6 +182,7 @@ function pnpmConfigEnv(base, registries, dir) {
   fs.writeFileSync(userconfig, own + registryLines(base, registries));
   return {
     npm_config_userconfig: userconfig,
+    npm_config_registry: localRegistry(base, registries.default),
     pnpm_config_registry: localRegistry(base, registries.default),
     pnpm_config_pm_on_fail: "ignore",
     pnpm_config_update_notifier: "false",

@@ -105,6 +105,10 @@ in
     build = buildPnpmProject;
   };
   inherit cli;
+  registry-environment = import ./registry-environment.nix {
+    inherit pkgs buildPnpmProject;
+  };
+
   current-script-installs = import ./script-installs.nix {
     inherit pkgs buildPnpmProject;
   };
