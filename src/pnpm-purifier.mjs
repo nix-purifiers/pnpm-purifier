@@ -61,7 +61,6 @@ import process from "node:process";
 import { fileURLToPath } from "node:url";
 import {
   LOCK_FILE,
-  LOCK_PLATFORMS,
   LOCK_VERSION,
   contentHash,
   isMetadata,
@@ -71,6 +70,7 @@ import {
   localizeMetadata,
   derivedFilePaths,
   lockImporters,
+  lockPlatformOptions,
   lockProblems,
   needsRegistry,
   outsideResolutions,
@@ -86,12 +86,6 @@ import {
 } from "./lib.mjs";
 
 const STATE_DIR = ".pnpm-purifier";
-
-const PLATFORM_ARGS = [
-  ...LOCK_PLATFORMS.os.map((o) => `--os=${o}`),
-  ...LOCK_PLATFORMS.cpu.map((c) => `--cpu=${c}`),
-  ...LOCK_PLATFORMS.libc.map((l) => `--libc=${l}`),
-];
 
 const selfPath = fileURLToPath(import.meta.url);
 const libDir = process.env.PNPM_PURIFIER_NIX_LIB ?? path.join(path.dirname(selfPath), "../pkgs/build-pnpm-project");
@@ -448,7 +442,11 @@ function lockGit(resolution) {
   return { entry, subdirectory: subdirectory ?? null, file: nixBuild(expr, ["--no-link"]) };
 }
 
-async function installFrom(project, work, registries, server, gitFiles, extraEnv) {
+async function installFrom(project, work, registries, server, gitFiles, extraEnv, pnpmVersion) {
+  const manifestFile = path.join(project, "package.json");
+  const manifest = JSON.parse(fs.readFileSync(manifestFile, "utf8"));
+  const platforms = lockPlatformOptions(pnpmVersion, manifest);
+  if (platforms.manifest !== manifest) fs.writeFileSync(manifestFile, JSON.stringify(platforms.manifest, null, 2) + "\n");
   pinProjectRegistries(project, server.base, registries);
   const rewrite = rewriteLockFile(project, server.base, (p) => gitFiles.get(p) ?? null);
   const env = {
@@ -459,7 +457,7 @@ async function installFrom(project, work, registries, server, gitFiles, extraEnv
   };
   const code = await run(
     pnpmCommand(project),
-    ["install", "--frozen-lockfile", "--store-dir", path.join(work, "store"), ...PLATFORM_ARGS],
+    ["install", "--frozen-lockfile", "--store-dir", path.join(work, "store"), ...platforms.args],
     { cwd: project, env },
   );
   return { code, env, rewrite };
@@ -539,7 +537,7 @@ async function lock(root = process.cwd()) {
     },
   });
   console.error(`pnpm-purifier: installing from pnpm-lock.yaml with pnpm ${pnpmVersion}, recording every download`);
-  const first = await installFrom(project, recordDir, registries, recorder, gitFiles, {});
+  const first = await installFrom(project, recordDir, registries, recorder, gitFiles, {}, pnpmVersion);
   recorder.server.close();
   if (first.code !== 0) {
     fail(`pnpm install failed in the lock run (exit ${first.code}); the lock run's copy of the project is at ${project}`);
@@ -563,7 +561,7 @@ async function lock(root = process.cwd()) {
       quiet: true,
     });
     console.error("pnpm-purifier: installing again from the recorded downloads alone");
-    const second = await installFrom(verifyProject, verifyDir, registries, verifier, gitFiles, OFFLINE_ENV);
+    const second = await installFrom(verifyProject, verifyDir, registries, verifier, gitFiles, OFFLINE_ENV, pnpmVersion);
     verifier.server.close();
     if (second.code === 0) break;
     const added = [];

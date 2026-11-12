@@ -16,6 +16,28 @@ export const LOCK_VERSION = 2;
 // packages (such as @esbuild/linux-arm64) of each system.
 export const LOCK_PLATFORMS = { os: ["linux", "darwin"], cpu: ["x64", "arm64"], libc: ["glibc"] };
 
+// Older frontends select optional platforms from package.json. Configure
+// only the disposable capture copies; engine checks and dependency fields
+// keep their original values.
+export function lockPlatformOptions(version, manifest) {
+  const major = Number(version.match(/^(\d+)\./)?.[1]);
+  if (!Number.isInteger(major) || major < 1) throw new Error(`Invalid pnpm version: ${version}`);
+  if (major < 10) {
+    return {
+      args: [],
+      manifest: { ...manifest, pnpm: { ...manifest.pnpm, supportedArchitectures: LOCK_PLATFORMS } },
+    };
+  }
+  return {
+    args: [
+      ...LOCK_PLATFORMS.os.map((o) => `--os=${o}`),
+      ...LOCK_PLATFORMS.cpu.map((c) => `--cpu=${c}`),
+      ...LOCK_PLATFORMS.libc.map((l) => `--libc=${l}`),
+    ],
+    manifest,
+  };
+}
+
 // --- Paths ------------------------------------------------------------------
 
 // The lockfile path of an upstream URL: the scheme, the host (a port joins

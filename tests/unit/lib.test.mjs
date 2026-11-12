@@ -17,6 +17,7 @@ import {
   localRegistry,
   localizeMetadata,
   lockImporters,
+  lockPlatformOptions,
   lockPackages,
   lockProblems,
   needsRegistry,
@@ -38,6 +39,27 @@ import {
 
 const fixtures = path.join(path.dirname(fileURLToPath(import.meta.url)), "../fixtures");
 const read = (p) => fs.readFileSync(path.join(fixtures, p), "utf8");
+
+test("legacy capture platform settings preserve the caller manifest and engine policy", () => {
+  const original = {
+    engines: { node: ">=99" },
+    dependencies: { fixture: "1.2.3" },
+    pnpm: { overrides: { fixture: "1.2.3" }, supportedArchitectures: { os: ["current"] } },
+  };
+  const before = structuredClone(original);
+  const selected = lockPlatformOptions("9.6.0", original);
+  assert.deepEqual(original, before);
+  assert.deepEqual(selected.args, []);
+  assert.deepEqual(selected.manifest.engines, before.engines);
+  assert.deepEqual(selected.manifest.dependencies, before.dependencies);
+  assert.deepEqual(selected.manifest.pnpm.overrides, before.pnpm.overrides);
+  assert.deepEqual(selected.manifest.pnpm.supportedArchitectures, {
+    os: ["linux", "darwin"], cpu: ["x64", "arm64"], libc: ["glibc"],
+  });
+  assert.equal(lockPlatformOptions("10.34.7", original).manifest, original);
+  assert.ok(!lockPlatformOptions("10.34.7", original).args.includes("--force"));
+  assert.throws(() => lockPlatformOptions("unknown", original), /Invalid pnpm version/);
+});
 
 // A gzipped tar archive holding `files` (name to text), as npm packs a
 // package.
