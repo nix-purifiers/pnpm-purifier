@@ -156,7 +156,7 @@ serves a company mirror or credentials. Its result has:
   vulnerability tools.
 - `lock`: the lock in memory, as `readLock` gives it.
 
-`nix/lib/build-pnpm-project.nix` documents the builder's other arguments:
+`pkgs/build-pnpm-project/default.nix` documents the builder's other arguments:
 `lockFile` (see Working offline), `pnpm` (the default is
 nixpkgs' pnpm of the major version that `packageManager` in `package.json`
 names, or that the lockfile records), `buildScript`, `nativeBuildInputs`
@@ -262,7 +262,7 @@ interrupt.
 | A local directory or tarball (`file:`, `link:`, `workspace:`) | `{directory}` or `{tarball: file:…}` | none: it is part of the project source | nothing |
 
 Nix reads `pnpm-lock.yaml` itself, through the narrow form pnpm writes it
-in (`nix/lib/pnpm-lock.nix`). A registry package's URL is
+in (`lib-overlays/default/pnpm-lock.nix`). A registry package's URL is
 `<registry><name>/-/<name without scope>-<version>.tgz`, with the registry
 of its scope from the project's `.npmrc`, npm's default registry, and
 `https://npm.jsr.io/` for `@jsr`. A file entry is

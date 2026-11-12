@@ -93,7 +93,7 @@ const PLATFORM_ARGS = [
 ];
 
 const selfPath = fileURLToPath(import.meta.url);
-const libDir = process.env.PNPM_PURIFIER_NIX_LIB ?? path.join(path.dirname(selfPath), "../nix/lib");
+const libDir = process.env.PNPM_PURIFIER_NIX_LIB ?? path.join(path.dirname(selfPath), "../pkgs/build-pnpm-project");
 
 // The purifier lockfile of an external build: `--lockfile`, or else the
 // variable PNPM_PURIFIER_LOCKFILE, which the dev shell of a packaging flake
@@ -795,7 +795,7 @@ function builderExpr(root) {
   const lockFile = lockfileOption != null ? ` lockFile = /. + ${JSON.stringify(lockfileOption)};` : "";
   const pnpmLock = toolLockfileOption != null ? ` pnpmLock = /. + ${JSON.stringify(toolLockfileOption)};` : "";
   return (
-    `((${nixpkgsExpr()}.callPackage ${JSON.stringify(path.join(libDir, "build-pnpm-project.nix"))} { purifier = ${libraryExpr()}; }) ` +
+    `((${nixpkgsExpr()}.callPackage ${JSON.stringify(path.join(libDir, "default.nix"))} { purifier = ${libraryExpr()}; }) ` +
     `{ src = /. + ${JSON.stringify(root)};${lockFile}${pnpmLock} })`
   );
 }

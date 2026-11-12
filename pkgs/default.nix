@@ -7,11 +7,11 @@
   # The `pnpm-purifier` command.
   cli = callPackage ./cli { };
 
-  # The builder (nix/lib/build-pnpm-project.nix), with the purifier library
+  # The builder (pkgs/build-pnpm-project/default.nix), with the purifier library
   # of this flake as `purifier`. `pnpm-purifier.buildPnpmProject.override`
   # replaces any package it takes, and `pnpm-purifier.overrideScope`
   # replaces what the scope shares.
-  buildPnpmProject = callPackage ../nix/lib/build-pnpm-project.nix {
+  buildPnpmProject = callPackage ../pkgs/build-pnpm-project/default.nix {
     inherit (lib) purifier;
   };
 }

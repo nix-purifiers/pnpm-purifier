@@ -141,7 +141,7 @@ export function lockImporters(lockText) {
 }
 
 // The packages of the project document of pnpm-lock.yaml, as
-// nix/lib/pnpm-lock.nix reads them: { key, name, version, resolution,
+// lib-overlays/default/pnpm-lock.nix reads them: { key, name, version, resolution,
 // filters }, where `resolution` maps each key of the flow mapping to its
 // value and `filters` holds the `os`, `cpu` and `libc` lists that are set.
 export function lockPackages(lockText) {
@@ -175,7 +175,7 @@ export function lockPackages(lockText) {
 }
 
 // The lockfile paths of the files pnpm-lock.yaml implies, as
-// nix/lib/entries.nix derives them: a registry package's tarball at its
+// lib-overlays/default/entries.nix derives them: a registry package's tarball at its
 // registry, and a dependency given by tarball URL at that URL. Git
 // dependencies and local files are not among them.
 export function derivedFilePaths(lockText, registries) {
@@ -195,7 +195,7 @@ export function derivedFilePaths(lockText, registries) {
   return paths;
 }
 
-// The registries a project's .npmrc sets, as nix/lib/registries.nix reads
+// The registries a project's .npmrc sets, as lib-overlays/default/registries.nix reads
 // them: `registry=URL` and `@scope:registry=URL`, over npm's default
 // registry and pnpm's default for the @jsr scope.
 export function registriesFromNpmrc(npmrcText) {

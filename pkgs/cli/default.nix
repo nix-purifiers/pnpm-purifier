@@ -47,12 +47,13 @@ runCommand "pnpm-purifier"
   }
   ''
     share="$out/share/pnpm-purifier"
-    mkdir -p "$share/nix"
+    mkdir -p "$share/pkgs" "$share/lib-overlays"
     cp -r ${../../src} "$share/src"
-    cp -r ${../../nix/lib} "$share/nix/lib"
+    cp -r ${../build-pnpm-project} "$share/pkgs/build-pnpm-project"
+    cp -r ${../../lib-overlays/default} "$share/lib-overlays/default"
     makeWrapper ${lib.getExe nodejs} "$out/bin/pnpm-purifier" \
       --add-flags "$share/src/pnpm-purifier.mjs" \
-      --set-default PNPM_PURIFIER_NIX_LIB "$share/nix/lib" \
+      --set-default PNPM_PURIFIER_NIX_LIB "$share/pkgs/build-pnpm-project" \
       --set-default PNPM_PURIFIER_NIXPKGS ${pkgs.path} \
       --set-default PNPM_PURIFIER_LIBRARY ${purifierSource} \
       --set-default PNPM_PURIFIER_INPUT_TOOLS ${purifierSource}/tools \
