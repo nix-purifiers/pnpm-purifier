@@ -295,6 +295,7 @@ const PIN_ENV = {
 // The environment of every process the command starts: `env` (the
 // command's own by default), with the settings of PIN_ENV.
 let projectRuntime = null;
+let useProjectRuntime = true;
 function runtime() {
   if (!projectRuntime) {
     projectRuntime = new ProjectRuntime({ pnpm: pnpmCommand(process.cwd()), self: selfPath });
@@ -303,20 +304,21 @@ function runtime() {
   return projectRuntime;
 }
 function childEnv(env = process.env) {
-  return runtime().environment({ ...env, ...PIN_ENV });
+  const pinned = { ...env, ...PIN_ENV };
+  return useProjectRuntime ? runtime().environment(pinned) : pinned;
 }
 
 function run(command, args, options = {}) {
   const { impure = false, ...spawnOptions } = options;
   return new Promise((resolve) => {
-    const child = spawn(runtime().command(command), args, { stdio: "inherit", ...spawnOptions, env: impure ? runtime().environment(options.env ?? process.env) : childEnv(options.env) });
+    const child = spawn(useProjectRuntime ? runtime().command(command) : command, args, { stdio: "inherit", ...spawnOptions, env: impure && useProjectRuntime ? runtime().environment(options.env ?? process.env) : childEnv(options.env) });
     child.on("error", (err) => fail(`cannot run ${command}: ${err.message}`));
     child.on("exit", (code, signal) => resolve(signal ? 128 + (os.constants.signals[signal] ?? 0) : code));
   });
 }
 
 function capture(command, args, options = {}) {
-  const r = spawnSync(runtime().command(command), args, { encoding: "utf8", maxBuffer: 64 * 1024 * 1024, ...options, env: childEnv(options.env) });
+  const r = spawnSync(useProjectRuntime ? runtime().command(command) : command, args, { encoding: "utf8", maxBuffer: 64 * 1024 * 1024, ...options, env: childEnv(options.env) });
   if (r.error) fail(`cannot run ${command}: ${r.error.message}`);
   if (r.status !== 0) fail(`${command} ${args.join(" ")} failed:\n${r.stderr ?? ""}`);
   return r.stdout;
@@ -993,6 +995,9 @@ const leadingArgs = takeLockfileOption(process.argv.slice(2), false);
 const [command, ...afterCommand] = leadingArgs;
 const rest = ["lock", "update", "prefetch", "publish"].includes(command) ? takeInputOptions(takeLockfileOption(afterCommand, true)) : afterCommand;
 if (command === "registry-exec") {
+  // This implementation helper runs the supplied SDK command verbatim. Its
+  // toolchain is supplied by the caller, rather than local project adoption.
+  useProjectRuntime = false;
   const { manifest, registries, projectDir, command: cmd } = parseExec(rest);
   const { code, misses } = await execWithManifest(manifest, registries, cmd, { projectDir });
   if (code !== 0 && misses.size > 0) {

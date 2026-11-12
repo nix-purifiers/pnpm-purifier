@@ -113,3 +113,25 @@ test("supplied-input integrity views execute the selected JS manager under the p
   assert.equal(value.executable, node);
   assert.deepEqual(value.args, ["view", "@test/input@1.0.0", "dist.integrity", "--json"]);
 });
+
+
+test("registry-exec preserves an explicit SDK command without requiring project tools on PATH", (t) => {
+  const { root, bin, node, env } = fixture(t);
+  const empty = path.join(root, "empty"); fs.mkdirSync(empty);
+  const body = path.join(root, "registry-body.txt"); fs.writeFileSync(body, "locked SDK input");
+  const manifest = path.join(root, "manifest.json");
+  fs.writeFileSync(manifest, JSON.stringify({ "https/registry.npmjs.org/fixture.txt": body }));
+  const registries = path.join(root, "registries.json");
+  fs.writeFileSync(registries, JSON.stringify({ default: "https://registry.npmjs.org/", scopes: {} }));
+  const code = `const http=require("node:http");const assert=require("node:assert/strict");http.get(process.env.pnpm_config_registry+"fixture.txt",{agent:false},r=>{let body="";r.on("data",chunk=>body+=chunk);r.on("end",()=>{assert.equal(r.statusCode,200);assert.equal(body,"locked SDK input");console.log(JSON.stringify({executable:process.execPath,trust:process.env.pnpm_config_trust_lockfile}));});});`;
+  for (const searchPath of [bin, empty]) {
+    const selected = { ...env, PATH: searchPath, PNPM_PURIFIER_IMPLEMENTATION_HELPER: "1" };
+    for (const key of ["PNPM_PURIFIER_PNPM", "PNPM_PURIFIER_PNPMS", "npm_node_execpath"]) delete selected[key];
+    const result = spawnSync(process.execPath, [self, "registry-exec", "--manifest", manifest, "--registries", registries, "--", process.execPath, "-e", code], {
+      cwd: root, encoding: "utf8", env: selected, timeout: 15000,
+    });
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(JSON.parse(result.stdout), { executable: process.execPath, trust: "true" });
+    assert.notEqual(JSON.parse(result.stdout).executable, node);
+  }
+});
