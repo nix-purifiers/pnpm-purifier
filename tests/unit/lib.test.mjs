@@ -56,8 +56,11 @@ test("legacy capture platform settings preserve the caller manifest and engine p
   assert.deepEqual(selected.manifest.pnpm.supportedArchitectures, {
     os: ["linux", "darwin"], cpu: ["x64", "arm64"], libc: ["glibc"],
   });
-  assert.equal(lockPlatformOptions("10.34.7", original).manifest, original);
-  assert.ok(!lockPlatformOptions("10.34.7", original).args.includes("--force"));
+  for (const version of ["10.0.0", "10.34.7"]) {
+    assert.deepEqual(lockPlatformOptions(version, original), selected);
+  }
+  assert.equal(lockPlatformOptions("11.27.0", original).manifest, original);
+  assert.ok(!lockPlatformOptions("11.27.0", original).args.includes("--force"));
   assert.throws(() => lockPlatformOptions("unknown", original), /Invalid pnpm version/);
 });
 

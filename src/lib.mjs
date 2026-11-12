@@ -22,7 +22,7 @@ export const LOCK_PLATFORMS = { os: ["linux", "darwin"], cpu: ["x64", "arm64"], 
 export function lockPlatformOptions(version, manifest) {
   const major = Number(version.match(/^(\d+)\./)?.[1]);
   if (!Number.isInteger(major) || major < 1) throw new Error(`Invalid pnpm version: ${version}`);
-  if (major < 10) {
+  if (major < 11) {
     return {
       args: [],
       manifest: { ...manifest, pnpm: { ...manifest.pnpm, supportedArchitectures: LOCK_PLATFORMS } },
