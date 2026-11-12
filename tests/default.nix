@@ -404,7 +404,7 @@ in
     cp -r ${../src} repo/src
     cp -r ${./unit} repo/tests/unit
     cp -r ${./fixtures} repo/tests/fixtures
-    node --test repo/tests/unit/lib.test.mjs
+    node --test repo/tests/unit/*.test.mjs
     touch $out
   '';
 
