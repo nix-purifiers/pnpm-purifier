@@ -82,6 +82,24 @@ let
     };
 in
 {
+  # Root preparation may require development tools. Production assembly must
+  # retain its result without trying to rerun it after those tools are pruned.
+  root-prepare =
+    let
+      project =
+        (build {
+          src = ./fixtures/root-prepare;
+          pnpm = pkgs.pnpm_10;
+        }).packages.root-prepare.overrideAttrs
+          (_: {
+            CI = "true";
+          });
+    in
+    pkgs.runCommand "root-prepare" { } ''
+      ${project.artifacts.bin.root-prepare-check} > $out
+      grep -Fx 'prepare retained; development dependency pruned' $out
+    '';
+
   hoisted-lifecycle =
     (build {
       src = ./fixtures/hoisted-lifecycle;
@@ -411,14 +429,20 @@ in
 
   # The unit tests of src/lib.mjs (tests/unit/), which read the fixture
   # lockfiles.
-  unit = pkgs.runCommand "unit" { nativeBuildInputs = [ pkgs.nodejs ]; } ''
-    mkdir -p repo/tests
-    cp -r ${../src} repo/src
-    cp -r ${./unit} repo/tests/unit
-    cp -r ${./fixtures} repo/tests/fixtures
-    node --test repo/tests/unit/lib.test.mjs
-    touch $out
-  '';
+  unit =
+    pkgs.runCommand "unit"
+      {
+        ${if pkgs.stdenv.hostPlatform.isDarwin then "__darwinAllowLocalNetworking" else null} = true;
+        nativeBuildInputs = [ pkgs.nodejs ];
+      }
+      ''
+        mkdir -p repo/tests
+        cp -r ${../src} repo/src
+        cp -r ${./unit} repo/tests/unit
+        cp -r ${./fixtures} repo/tests/fixtures
+        node --test repo/tests/unit/*.test.mjs
+        touch $out
+      '';
 
   # A lock whose entry for the picocolors tarball, which the prepare step
   # of the git dependency reads, names the file of ms, with a contentHash

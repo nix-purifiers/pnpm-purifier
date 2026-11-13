@@ -53,6 +53,7 @@ runCommand "pnpm-purifier"
     cp -r ${../../lib-overlays/default} "$share/lib-overlays/default"
     makeWrapper ${lib.getExe nodejs} "$out/bin/pnpm-purifier" \
       --add-flags "$share/src/pnpm-purifier.mjs" \
+      --set PNPM_PURIFIER_IMPLEMENTATION_HELPER 1 \
       --set-default PNPM_PURIFIER_NIX_LIB "$share/pkgs/build-pnpm-project" \
       --set-default PNPM_PURIFIER_NIXPKGS ${pkgs.path} \
       --set-default PNPM_PURIFIER_LIBRARY ${purifierSource} \
@@ -63,8 +64,6 @@ runCommand "pnpm-purifier"
       --suffix PATH : ${
         lib.makeBinPath [
           pnpm
-          # pnpm runs package scripts with the node on PATH.
-          nodejs
         ]
       }
   ''

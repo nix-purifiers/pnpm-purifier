@@ -198,14 +198,19 @@ purifier from that package set or pass a compatible toolchain to the builder.
 
 ## Working offline
 
-`pnpm-purifier prefetch` realizes in the Nix store the locked files for the
-current system and the tools that day-to-day work runs: the
-`pnpm-purifier` command itself, Node.js, pnpm 10, 11 and 12, the nixpkgs
-they come from, and the purifier library with its flake inputs. It keeps
-each one alive with a garbage-collector root in `.pnpm-purifier/`. After a
-prefetch, `.pnpm-purifier/command/bin/pnpm-purifier install`, the build and
-test scripts and the editor work with no network, and so does the Nix
-build of the project.
+Local capture and development use the project's existing `node` on PATH
+(or the invoking Node for direct source execution). The Node packaged with
+the command is an implementation helper, not a replacement project runtime.
+Node-based package-manager frontends run under the selected project Node,
+including lifecycle scripts and nested package-manager calls. A host runtime
+outside the Nix store is valid; no runtime version table selects its replacement.
+Upstream engine and actual Node ABI/API requirements still apply.
+
+`pnpm-purifier prefetch` realizes the locked dependency files and retains
+already-present tools where they have store paths. It does not provision the
+bundled SDK matrix. The host runtime remains installed and managed by the
+user. Full sandboxed project builds select their immutable toolchain separately,
+through the builder's `nodejs` and `pnpm` overrides.
 
 We recommend committing both lockfiles to the repository of the project,
 and the builder and the commands look for them there. A flake can instead
