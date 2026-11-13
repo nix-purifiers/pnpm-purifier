@@ -49,6 +49,7 @@
 //
 // The parsing and the path rules are in lib.mjs.
 
+import { ProjectRuntime } from "./project-runtime.mjs";
 import { bindNativeLock, needsNativeRebind } from "./npm-input-lock.mjs";
 import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -293,21 +294,31 @@ const PIN_ENV = {
 
 // The environment of every process the command starts: `env` (the
 // command's own by default), with the settings of PIN_ENV.
+let projectRuntime = null;
+let useProjectRuntime = true;
+function runtime() {
+  if (!projectRuntime) {
+    projectRuntime = new ProjectRuntime({ pnpm: pnpmCommand(process.cwd()), self: selfPath });
+    process.once("exit", () => projectRuntime.close());
+  }
+  return projectRuntime;
+}
 function childEnv(env = process.env) {
-  return { ...env, ...PIN_ENV };
+  const pinned = { ...env, ...PIN_ENV };
+  return useProjectRuntime ? runtime().environment(pinned) : pinned;
 }
 
 function run(command, args, options = {}) {
   const { impure = false, ...spawnOptions } = options;
   return new Promise((resolve) => {
-    const child = spawn(command, args, { stdio: "inherit", ...spawnOptions, env: impure ? (options.env ?? process.env) : childEnv(options.env) });
+    const child = spawn(useProjectRuntime ? runtime().command(command) : command, args, { stdio: "inherit", ...spawnOptions, env: impure && useProjectRuntime ? runtime().environment(options.env ?? process.env) : childEnv(options.env) });
     child.on("error", (err) => fail(`cannot run ${command}: ${err.message}`));
     child.on("exit", (code, signal) => resolve(signal ? 128 + (os.constants.signals[signal] ?? 0) : code));
   });
 }
 
 function capture(command, args, options = {}) {
-  const r = spawnSync(command, args, { encoding: "utf8", maxBuffer: 64 * 1024 * 1024, ...options, env: childEnv(options.env) });
+  const r = spawnSync(useProjectRuntime ? runtime().command(command) : command, args, { encoding: "utf8", maxBuffer: 64 * 1024 * 1024, ...options, env: childEnv(options.env) });
   if (r.error) fail(`cannot run ${command}: ${r.error.message}`);
   if (r.status !== 0) fail(`${command} ${args.join(" ")} failed:\n${r.stderr ?? ""}`);
   return r.stdout;
@@ -705,7 +716,7 @@ function realize(root) {
   const stateDir = path.join(root, STATE_DIR);
   fs.mkdirSync(stateDir, { recursive: true });
   const hint = `Nix could not fetch the files that pnpm-lock.yaml and ${LOCK_FILE} name. A hash mismatch means a file was edited or a download changed; run \`pnpm-purifier lock\``;
-  const manifest = nixBuild(`${builderExpr(root)}.dependencies`, ["--out-link", path.join(stateDir, "manifest")], hint);
+  const manifest = nixBuild(`let p = ${builderExpr(root)}; in ${nixpkgsExpr()}.callPackage ${JSON.stringify(path.join(libDir, "dependencies.nix"))} { purifier = ${libraryExpr()}; entries = p.fetches; }`, ["--out-link", path.join(stateDir, "manifest")], hint);
   const registriesFile = nixBuild(`${builderExpr(root)}.registriesFile`, ["--out-link", path.join(stateDir, "registries")], hint);
   return { manifest, registriesFile };
 }
@@ -820,7 +831,7 @@ async function publish(args) {
       if (!item.primary) {
         const options = [...registryOptions];
         if (!options.some(arg=>arg === "--registry" || arg.startsWith("--registry=")) && item.package.publishConfig?.registry) options.push("--registry",item.package.publishConfig.registry);
-        const existing = spawnSync(pnpmCommand(root),["view",`${item.name}@${item.version}`,"dist.integrity","--json",...options],{encoding:"utf8",env:childEnv()});
+        const existing = spawnSync(runtime().command(pnpmCommand(root)),["view",`${item.name}@${item.version}`,"dist.integrity","--json",...options],{encoding:"utf8",env:childEnv()});
         if (existing.status === 0) {
           const integrity = JSON.parse(existing.stdout || "null");
           if (integrity === item.integrity) continue;
@@ -874,8 +885,8 @@ async function prefetch() {
     const p = file && storePathOf(file);
     if (p) roots.set(name, p);
   };
-  add("node", process.execPath);
-  for (const [major, exe] of Object.entries(JSON.parse(process.env.PNPM_PURIFIER_PNPMS ?? "{}"))) add(`pnpm-${major}`, exe);
+  add("node", runtime().node.executable);
+  add("pnpm", runtime().manager);
   add("command", selfPath);
   add("nixpkgs", process.env.PNPM_PURIFIER_NIXPKGS);
   if (process.env.PNPM_PURIFIER_LIBRARY) {
@@ -984,6 +995,9 @@ const leadingArgs = takeLockfileOption(process.argv.slice(2), false);
 const [command, ...afterCommand] = leadingArgs;
 const rest = ["lock", "update", "prefetch", "publish"].includes(command) ? takeInputOptions(takeLockfileOption(afterCommand, true)) : afterCommand;
 if (command === "registry-exec") {
+  // This implementation helper runs the supplied SDK command verbatim. Its
+  // toolchain is supplied by the caller, rather than local project adoption.
+  useProjectRuntime = false;
   const { manifest, registries, projectDir, command: cmd } = parseExec(rest);
   const { code, misses } = await execWithManifest(manifest, registries, cmd, { projectDir });
   if (code !== 0 && misses.size > 0) {

@@ -108,7 +108,9 @@ jobs:
           work=$(mktemp -d)
           git clone --quiet https://github.com/unjs/giget "$work/project"
           git -C "$work/project" checkout --quiet f1dad453055b97a81d5227edce7262c8dcaf53d2
+          node -p 'JSON.stringify({ executable: process.execPath, version: process.versions.node, abi: process.versions.modules })'
           (cd "$work/project" && nix run "$GITHUB_WORKSPACE" -- lock --lockfile "$work/lock.json")
+          if [ -e "$work/lock.json" ]; then cat "$work/lock.json"; fi
           [ ! -e "$work/lock.json" ]
           git -C "$work/project" diff --exit-code pnpm-lock.yaml
 
@@ -195,6 +197,9 @@ jobs:
       - name: Prefetch the workspace fixture
         run: |
           set -euo pipefail
+          project_node=$(node -p 'process.execPath')
+          test -x "$project_node"
+          echo "PNPM_PURIFIER_TEST_NODE=$project_node" >> "$GITHUB_ENV"
           cp -r tests/fixtures/workspace "$RUNNER_TEMP/project"
           cd "$RUNNER_TEMP/project"
           nix run "$GITHUB_WORKSPACE" -- prefetch
@@ -228,7 +233,7 @@ jobs:
             "$purifier" install
             "$purifier" --recursive run build
             "$purifier" --recursive test
-            .pnpm-purifier/node/bin/node packages/app/dist/main.js offline | grep -F "Hello, "
+            "$PNPM_PURIFIER_TEST_NODE" packages/app/dist/main.js offline | grep -F "Hello, "
           '
 
   composition-native:
@@ -262,6 +267,9 @@ jobs:
           test "$(nix eval --impure --raw --expr builtins.currentSystem)" = aarch64-darwin
           git rev-parse HEAD
           /usr/bin/curl --fail --silent --max-time 30 https://registry.npmjs.org/ > /dev/null
+          project_node=$(node -p 'process.execPath')
+          test -x "$project_node"
+          echo "PNPM_PURIFIER_TEST_NODE=$project_node" >> "$GITHUB_ENV"
           cp -r tests/fixtures/workspace "$RUNNER_TEMP/project"
           cd "$RUNNER_TEMP/project"
           nix run "$GITHUB_WORKSPACE" -- lock
@@ -283,7 +291,7 @@ jobs:
             fi
             # Prove the narrow policy still permits a real loopback HTTP
             # server and client, rather than failing every network operation.
-            .pnpm-purifier/node/bin/node -e "const http = require(\"node:http\"); const fs = require(\"node:fs\"); const server = http.createServer((req, res) => res.end(\"loopback-ok\")); server.listen(0, \"127.0.0.1\", () => fs.writeFileSync(\"$RUNNER_TEMP/loopback-port\", String(server.address().port)));" &
+            "$PNPM_PURIFIER_TEST_NODE" -e "const http = require(\"node:http\"); const fs = require(\"node:fs\"); const server = http.createServer((req, res) => res.end(\"loopback-ok\")); server.listen(0, \"127.0.0.1\", () => fs.writeFileSync(\"$RUNNER_TEMP/loopback-port\", String(server.address().port)));" &
             probe=$!
             trap "kill $probe 2>/dev/null || true" EXIT
             for attempt in {1..100}; do
@@ -300,7 +308,7 @@ jobs:
             "$purifier" install --frozen-lockfile --store-dir "$RUNNER_TEMP/offline-fresh-store"
             "$purifier" --recursive run build
             "$purifier" --recursive test
-            .pnpm-purifier/node/bin/node packages/app/dist/main.js offline | grep -F "Hello, "
+            "$PNPM_PURIFIER_TEST_NODE" packages/app/dist/main.js offline | grep -F "Hello, "
           '
 
   version-runtime:
