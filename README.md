@@ -71,6 +71,14 @@ nixpkgs (pnpm 10, 11 or 12), and keeps pnpm on that version.
 installs twice, once online, recording, and once offline from what it
 recorded.
 
+Generated Nix roots and supplied-input views live outside the project,
+under `XDG_CACHE_HOME/pnpm-purifier/v1` (or `~/.cache/pnpm-purifier/v1`).
+The cache must be user-owned and resolve outside the project. Each
+operation keeps its own private directory, so later commands cannot
+replace roots or views still used by an editor or another invocation.
+These directories persist after the command exits; automatic pruning and
+migration of existing in-tree `.pnpm-purifier` directories are not performed.
+
 ## Dependencies from another purified project
 
 ```sh

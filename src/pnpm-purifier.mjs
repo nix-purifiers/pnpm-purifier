@@ -59,6 +59,7 @@ import os from "node:os";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
+import { assertStateUnchanged, createStateOperation, targetRoot, writeStateJson } from "./project-state.mjs";
 import {
   LOCK_FILE,
   LOCK_VERSION,
@@ -710,14 +711,27 @@ function readLock(root) {
 }
 
 // Builds the manifest of the locked files and the registries file with
-// Nix, through the builder, with GC roots in .pnpm-purifier/.
+// Nix, through the builder. Every operation registers fresh private roots;
+// another invocation cannot replace paths this command is still using.
+function stateOperation(root, kind) {
+  return createStateOperation(root, {
+    lockfile: lockfilePath(root),
+    toolLockfile: toolLockfilePath(root),
+    inputs: inputReferences,
+    library: process.env.PNPM_PURIFIER_LIBRARY,
+    nixpkgs: process.env.PNPM_PURIFIER_NIXPKGS,
+    builder: libDir,
+  }, kind);
+}
+
 function realize(root) {
-  const stateDir = path.join(root, STATE_DIR);
-  fs.mkdirSync(stateDir, { recursive: true });
+  const state = stateOperation(root, "realize");
   const hint = `Nix could not fetch the files that pnpm-lock.yaml and ${LOCK_FILE} name. A hash mismatch means a file was edited or a download changed; run \`pnpm-purifier lock\``;
-  const manifest = nixBuild(`let p = ${builderExpr(root)}; in ${nixpkgsExpr()}.callPackage ${JSON.stringify(path.join(libDir, "dependencies.nix"))} { purifier = ${libraryExpr()}; entries = p.fetches; }`, ["--out-link", path.join(stateDir, "manifest")], hint);
-  const registriesFile = nixBuild(`${builderExpr(root)}.registriesFile`, ["--out-link", path.join(stateDir, "registries")], hint);
-  return { manifest, registriesFile };
+  const manifest = nixBuild(`let p = ${builderExpr(root)}; in ${nixpkgsExpr()}.callPackage ${JSON.stringify(path.join(libDir, "dependencies.nix"))} { purifier = ${libraryExpr()}; entries = p.fetches; }`, ["--out-link", path.join(state.roots, "manifest")], hint);
+  assertStateUnchanged(state);
+  const registriesFile = nixBuild(`${builderExpr(root)}.registriesFile`, ["--out-link", path.join(state.roots, "registries")], hint);
+  assertStateUnchanged(state);
+  return { manifest, registriesFile, state };
 }
 
 // Updates both lockfiles: pnpm re-resolves the dependencies (every one, or
@@ -861,16 +875,14 @@ function storePathOf(file) {
   return m ? m[1] : null;
 }
 
-// Keeps a store path alive with a garbage-collector root at
-// .pnpm-purifier/<name>.
-function addRoot(root, name, storePath) {
-  const link = path.join(root, STATE_DIR, name);
-  fs.rmSync(link, { force: true });
-  capture("nix", ["build", "--no-link", "--out-link", link, storePath]);
+// This operation owns a fresh directory. Actual store targets, rather than
+// mutable role aliases, determine its tool-root names.
+function addRoot(state, storePath) {
+  capture("nix", ["build", "--out-link", targetRoot(state, storePath), storePath]);
 }
 
 // Realizes everything day-to-day work reads, and keeps it alive with GC
-// roots in .pnpm-purifier/: the locked files for this system, the pnpm and
+// private roots outside the project: the locked files for this system, the pnpm and
 // Node.js the command runs, the command itself, the nixpkgs it builds
 // with, and the purifier library flake with its inputs. Afterwards an
 // offline install, the build and test scripts, and the editor work with no
@@ -878,11 +890,11 @@ function addRoot(root, name, storePath) {
 async function prefetch() {
   const root = process.cwd();
   if (!readLock(root)) fail(`prefetching needs a current ${LOCK_FILE}; run \`pnpm-purifier lock\``);
-  const { manifest } = realize(root);
+  const { manifest, state } = realize(root);
   const roots = new Map();
   const add = (name, file) => {
     const p = file && storePathOf(file);
-    if (p) roots.set(name, p);
+    if (p) roots.set(p, name);
   };
   add("node", runtime().node.executable);
   add("pnpm", runtime().manager);
@@ -896,9 +908,10 @@ async function prefetch() {
     };
     walk(archived, "purifier");
   }
-  for (const [name, storePath] of roots) addRoot(root, name, storePath);
+  for (const storePath of roots.keys()) addRoot(state, storePath);
+  assertStateUnchanged(state);
   const files = Object.keys(JSON.parse(fs.readFileSync(manifest, "utf8"))).length;
-  console.error(`pnpm-purifier: ${files} locked files and ${roots.size} tools are in the Nix store, kept by the roots in ${STATE_DIR}/`);
+  console.error(`pnpm-purifier: ${files} locked files and ${roots.size} tools are in the Nix store, kept by the roots in ${state.roots}`);
 }
 
 // --- Command line -----------------------------------------------------------
@@ -962,17 +975,19 @@ let projectInputs = [];
 async function prepareProjectInputs(root, refresh = false) {
   const previous = fs.existsSync(lockfilePath(root)) ? JSON.parse(fs.readFileSync(lockfilePath(root), "utf8")).projectInputs || [] : [];
   if (inputReferences == null && previous.length === 0) return;
-  const state = path.join(root, STATE_DIR);
+  const state = stateOperation(root, "inputs");
   projectInputs = JSON.parse(capture(process.env.PNPM_PURIFIER_PYTHON || "python3", [
     path.join(path.dirname(selfPath), "project-inputs.py"), process.env.PNPM_PURIFIER_INPUT_TOOLS || path.join(process.env.PNPM_PURIFIER_LIBRARY, "tools"),
-    lockfilePath(root), state, JSON.stringify(inputReferences), String(refresh),
+    lockfilePath(root), state.directory, JSON.stringify(inputReferences), String(refresh),
   ]));
+  assertStateUnchanged(state);
+  writeStateJson(path.join(state.directory, "inputs.json"), projectInputs);
   if (!projectInputs.length) return;
   const current = process.env.pnpm_config_global_pnpmfile || capture(pnpmCommand(root), ["config", "get", "globalPnpmfile"]).trim();
   if (current && !["undefined", "null"].includes(current) && path.resolve(current) !== path.join(path.dirname(selfPath), "npm-inputs.cjs")) {
     process.env.PNPM_PURIFIER_PREVIOUS_GLOBAL_HOOK = path.resolve(root, current);
   }
-  process.env.PNPM_PURIFIER_INPUT_VIEWS = path.join(state, "input-views.json");
+  process.env.PNPM_PURIFIER_INPUT_VIEWS = path.join(state.directory, "input-views.json");
   process.env.pnpm_config_global_pnpmfile = path.join(path.dirname(selfPath), "npm-inputs.cjs");
   process.env.npm_config_global_pnpmfile = process.env.pnpm_config_global_pnpmfile;
 }

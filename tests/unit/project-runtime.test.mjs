@@ -11,10 +11,12 @@ import { executable, inspectNode, ProjectRuntime } from "../../src/project-runti
 const self = fileURLToPath(new URL("../../src/pnpm-purifier.mjs", import.meta.url));
 function fixture(t) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "host-runtime-"));
+  const cache = fs.mkdtempSync(path.join(os.tmpdir(), "host-runtime-cache-"));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  t.after(() => fs.rmSync(cache, { recursive: true, force: true }));
   const bin = path.join(root, "host runtime", "bin"); fs.mkdirSync(bin, { recursive: true });
   const node = path.join(bin, "node"); fs.copyFileSync(process.execPath, node, fs.constants.COPYFILE_FICLONE); fs.chmodSync(node, 0o755);
-  const env = { ...process.env, PATH: bin + path.delimiter + process.env.PATH };
+  const env = { ...process.env, XDG_CACHE_HOME: cache, PATH: bin + path.delimiter + process.env.PATH };
   const sdk = path.join(root, "manager"); fs.mkdirSync(path.join(sdk, "bin"), { recursive: true });
   fs.writeFileSync(path.join(sdk, "package.json"), '{"name":"manager-fixture","version":"1"}');
   fs.writeFileSync(path.join(sdk, "token.json"), '{"relativeImport":"preserved"}');
