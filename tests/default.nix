@@ -463,7 +463,10 @@ in
     pkgs.runCommand "unit"
       {
         ${if pkgs.stdenv.hostPlatform.isDarwin then "__darwinAllowLocalNetworking" else null} = true;
-        nativeBuildInputs = [ pkgs.nodejs ];
+        nativeBuildInputs = [
+          pkgs.nodejs
+          pkgs.git
+        ];
       }
       ''
         mkdir -p repo/tests

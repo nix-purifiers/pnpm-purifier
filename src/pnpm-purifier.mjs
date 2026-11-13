@@ -49,6 +49,7 @@
 //
 // The parsing and the path rules are in lib.mjs.
 
+import { assertProjectScratch, projectScratch, guardScratchRun } from "./project-scratch.mjs";
 import { ProjectRuntime } from "./project-runtime.mjs";
 import { bindNativeLock, needsNativeRebind } from "./npm-input-lock.mjs";
 import { spawn, spawnSync } from "node:child_process";
@@ -306,6 +307,7 @@ function childEnv(env = process.env) {
 
 function run(command, args, options = {}) {
   const { impure = false, ...spawnOptions } = options;
+  guardScratchRun(options.cwd ?? process.cwd(), options.env ?? process.env);
   return new Promise((resolve) => {
     const child = spawn(useProjectRuntime ? runtime().command(command) : command, args, { stdio: "inherit", ...spawnOptions, env: impure && useProjectRuntime ? runtime().environment(options.env ?? process.env) : childEnv(options.env) });
     child.on("error", (err) => fail(`cannot run ${command}: ${err.message}`));
@@ -466,6 +468,7 @@ async function installFrom(project, work, registries, server, gitFiles, extraEnv
 }
 
 async function lock(root = process.cwd()) {
+  const work = projectScratch("pnpm-purifier-lock-");
   const started = Date.now();
   const lockYaml = toolLockfilePath(root);
   const treeYaml = path.join(root, "pnpm-lock.yaml");
@@ -476,7 +479,7 @@ async function lock(root = process.cwd()) {
   }
   if (!fs.existsSync(lockYaml)) {
     console.error("pnpm-purifier: the project has no pnpm-lock.yaml, so pnpm resolves the dependencies and writes it");
-    const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "pnpm-purifier-resolve-"));
+    const scratch = projectScratch("pnpm-purifier-resolve-");
     copyProject(root, path.join(scratch, "project"));
     const code = await run(pnpmCommand(root), ["install", "--lockfile-only"], { cwd: path.join(scratch, "project") });
     const written = path.join(scratch, "project", "pnpm-lock.yaml");
@@ -487,7 +490,7 @@ async function lock(root = process.cwd()) {
     fs.rmSync(scratch, { recursive: true, force: true });
   }
   if (projectInputs.length) {
-    const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "pnpm-purifier-input-lock-"));
+    const scratch = projectScratch("pnpm-purifier-input-lock-");
     const project = path.join(scratch, "project");
     copyProjectWithLock(root, project);
     const code = await run(pnpmCommand(root), ["install", "--lockfile-only", "--ignore-scripts"], {cwd:project});
@@ -511,7 +514,6 @@ async function lock(root = process.cwd()) {
 
   // Pass 1 installs through the upstream registries and records every
   // tarball pnpm downloads, and the registry metadata it reads.
-  const work = fs.mkdtempSync(path.join(os.tmpdir(), "pnpm-purifier-lock-"));
   const recordDir = path.join(work, "record");
   const project = path.join(recordDir, "project");
   copyProjectWithLock(root, project);
@@ -640,15 +642,17 @@ async function lock(root = process.cwd()) {
 // command. Both files are put back afterwards. The result is the exit code
 // and the paths the registry could not serve.
 async function execWithManifest(manifestFile, registriesFile, command, { projectDir = null, inPlace = null } = {}) {
+  const lockDir = projectDir ?? inPlace;
+  const source = inPlace != null ? toolLockfileOption : null;
+  const needsCopy = lockDir != null && needsNativeRebind(source ?? path.join(lockDir,"pnpm-lock.yaml"));
+  if (needsCopy) assertProjectScratch(fs.realpathSync(os.tmpdir()));
   const manifest = JSON.parse(fs.readFileSync(manifestFile, "utf8"));
   const registries = JSON.parse(fs.readFileSync(registriesFile, "utf8"));
   const misses = new Set();
   const { server, base } = await startRegistry({ lookup: (p) => manifest[p] ?? null, misses });
-  const configDir = fs.mkdtempSync(path.join(os.tmpdir(), "pnpm-purifier-"));
+  const configDir = needsCopy ? projectScratch("pnpm-purifier-rebind-") : fs.mkdtempSync(path.join(os.tmpdir(), "pnpm-purifier-"));
   const fileOf = (p) => manifest[p] ?? null;
   const unpin = projectDir != null ? pinProjectRegistries(projectDir, base, registries) : () => {};
-  const lockDir = projectDir ?? inPlace;
-  const source = inPlace != null ? toolLockfileOption : null;
   const rewrite = lockDir != null ? rewriteLockFile(lockDir, base, fileOf, source) : null;
   let providedOriginal = null;
   const restore = () => {
@@ -667,7 +671,7 @@ async function execWithManifest(manifestFile, registriesFile, command, { project
     ...OFFLINE_ENV,
   };
   try {
-    if (lockDir != null && needsNativeRebind(path.join(lockDir,"pnpm-lock.yaml"))) {
+    if (needsCopy) {
       const project = path.join(configDir,"project");
       copyProjectWithLock(lockDir,project);
       pinProjectRegistries(project,base,registries);
@@ -740,12 +744,13 @@ function realize(root) {
 // With the pnpm-lock.yaml of an external build, pnpm updates it in a copy
 // of the project, and the copy in the tree stays as it is.
 async function update(packages) {
+  // Validate an allocated context before any authored update writes.
+  const scratch = projectScratch("pnpm-purifier-update-");
   const root = process.cwd();
   if (toolLockfileOption == null) {
     const code = await run(pnpmCommand(root), ["update", "--lockfile-only", ...packages], {});
     if (code !== 0) process.exit(code);
   } else {
-    const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "pnpm-purifier-update-"));
     const project = path.join(scratch, "project");
     copyProject(root, project);
     if (fs.existsSync(toolLockfileOption)) fs.copyFileSync(toolLockfileOption, path.join(project, "pnpm-lock.yaml"));
@@ -763,14 +768,18 @@ async function update(packages) {
         fs.copyFileSync(updated, original);
       }
     }
-    fs.rmSync(scratch, { recursive: true, force: true });
   }
+  fs.rmSync(scratch, { recursive: true, force: true });
   await lock(root);
 }
 
 // Runs pnpm with the network, and locks again when the command changed
 // pnpm-lock.yaml.
 async function online(root, args) {
+  if (process.env.PNPM_PURIFIER !== "0") {
+    const scratch = projectScratch("pnpm-purifier-online-check-");
+    fs.rmSync(scratch, { recursive: true, force: true });
+  }
   const yaml = path.join(root, "pnpm-lock.yaml");
   const before = fs.existsSync(yaml) ? hexDigest(fs.readFileSync(yaml)) : null;
   const code = await run(pnpmCommand(root), args, {});

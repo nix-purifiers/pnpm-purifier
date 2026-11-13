@@ -398,3 +398,13 @@ adapter does not transform Node/Bun APIs or bundle dependencies automatically.
 
 The purifier idea was inspired by nixcloud's
 [cargo (libnix)](https://github.com/nixcloud/cargo).
+
+Temporary project copies run lifecycle scripts without Git metadata. Their canonical
+`TMPDIR` ancestry must contain no `.git` entry, including Git worktree files or
+dangling symlinks. If capture refuses the temporary directory, select a private
+temporary location outside repository ancestry. Repository-target Git environment
+overrides and external `core.hooksPath` or `core.worktree` configuration are also
+rejected for these copies. Ordinary in-place commands retain caller Git semantics.
+Hooks requiring actual repository history can fail honestly on temporary archive
+copies; the CLI does not fabricate history or suppress hooks. This guard is an
+operational boundary, not protection against hostile concurrent filesystem changes.
