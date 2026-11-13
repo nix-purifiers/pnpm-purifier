@@ -1,0 +1,18 @@
+{
+  "name": "root-prepare",
+  "version": "1.0.0",
+  "packageManager": "pnpm@10.34.7",
+  "bin": {
+    "root-prepare-check": "check.cjs"
+  },
+  "scripts": {
+    "prepare": "node prepare.cjs",
+    "prepack": "node prepack.cjs"
+  },
+  "dependencies": {
+    "picocolors": "1.1.1"
+  },
+  "devDependencies": {
+    "ms": "2.1.3"
+  }
+}

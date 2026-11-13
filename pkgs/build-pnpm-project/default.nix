@@ -271,7 +271,11 @@ let
       deploy =
         if atRoot then
           ''
-            pnpm install --frozen-lockfile --prod --store-dir "$TMPDIR/store" --filter ${filter}
+            cp package.json "$TMPDIR/deployed-package.json"
+            node ${../../src/package-manifest.mjs} "$TMPDIR/installed-package.json" "$TMPDIR/deployed-package.json"
+            cp "$TMPDIR/installed-package.json" package.json
+            pnpm install --frozen-lockfile --prod --ignore-scripts --store-dir "$TMPDIR/store" --filter ${filter}
+            cp "$TMPDIR/deployed-package.json" package.json
           ''
         else
           ''
@@ -295,6 +299,9 @@ let
 
       buildPhase = ''
         runHook preBuild
+        ${lib.optionalString atRoot ''
+          cp package.json "$TMPDIR/installed-package.json"
+        ''}
         ${installAndRun {
           filter = "${project.name}...";
           commands = ''
