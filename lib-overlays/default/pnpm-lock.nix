@@ -143,10 +143,21 @@ let
         version = elemAt m 1;
       };
 
+  snapshotGroups = builtins.groupBy (s: head (split "[(]" s.key)) (entries (section "snapshots"));
+
   package =
     { key, body }:
     let
       resolution = field "resolution" body;
+      # A platform package can also be a required dependency used as data
+      # by a cross compiler. Only exclusively optional packages may be
+      # omitted on other systems. Peer snapshots share the package entry.
+      snapshots = snapshotGroups.${key} or [ ];
+      optional =
+        if snapshots == [ ] then
+          field "optional" body == "true"
+        else
+          builtins.all (s: field "optional" s.body == "true") snapshots;
       filters = listToAttrs (
         map
           (name: {
@@ -164,7 +175,7 @@ let
     in
     nameAndVersion key
     // {
-      inherit key filters;
+      inherit key filters optional;
       resolution = if resolution == null then { } else flowMap resolution;
     };
 in
