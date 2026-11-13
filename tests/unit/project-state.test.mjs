@@ -74,3 +74,40 @@ test("persisted views remain private and actual tool targets never share a role 
   assert.throws(() => targetRoot(state, "/tmp/node"), /store root/);
   assert.ok(!fs.existsSync(path.join(f.root, ".pnpm-purifier")));
 });
+
+// A child manifest can change without a simultaneous lockfile write.
+test("known workspace importer manifests detect drift, restoration and missing files", (t) => {
+  const f = fixture(t);
+  fs.writeFileSync(f.options.toolLockfile, "lockfileVersion: '9.0'\nimporters:\n  .: {}\n  'packages/child': {}\n  packages/missing: {}\n");
+  const child = path.join(f.root, "packages/child/package.json");
+  fs.mkdirSync(path.dirname(child), { recursive: true });
+  const original = '{"name":"child","dependencies":{"ms":"2.1.3"}}\n';
+  fs.writeFileSync(child, original);
+  const one = createStateOperation(f.root, f.options, "realize", f.env);
+  assert.equal(one.snapshot.importerManifests.length, 3);
+  assert.equal(one.snapshot.importerManifests.find((file) => file.path.endsWith("/missing/package.json")).sha256, null);
+  fs.writeFileSync(child, '{"name":"child","dependencies":{"ms":"2.1.2"}}\n');
+  assert.throws(() => assertStateUnchanged(one), /dependency inputs changed/);
+  const two = createStateOperation(f.root, f.options, "realize", f.env);
+  assert.notEqual(two.dependencyHash, one.dependencyHash);
+  fs.writeFileSync(child, original);
+  assertStateUnchanged(one);
+  assert.equal(dependencyState(f.root, f.options).dependencyHash, one.dependencyHash);
+  fs.unlinkSync(child);
+  assert.throws(() => assertStateUnchanged(one), /dependency inputs changed/);
+  fs.writeFileSync(child, original);
+  const missing = path.join(f.root, "packages/missing/package.json");
+  fs.mkdirSync(path.dirname(missing), { recursive: true });
+  fs.writeFileSync(missing, '{"name":"new-child"}\n');
+  assert.throws(() => assertStateUnchanged(one), /dependency inputs changed/);
+  assert.ok(fs.existsSync(two.directory));
+});
+
+test("workspace importer identity rejects lexical and physical escapes", (t) => {
+  const f = fixture(t);
+  fs.writeFileSync(f.options.toolLockfile, "lockfileVersion: '9.0'\nimporters:\n  ../outside: {}\n");
+  assert.throws(() => dependencyState(f.root, f.options), /escapes the project/);
+  fs.symlinkSync(f.base, path.join(f.root, "alias"), "dir");
+  fs.writeFileSync(f.options.toolLockfile, "lockfileVersion: '9.0'\nimporters:\n  alias: {}\n");
+  assert.throws(() => dependencyState(f.root, f.options), /escapes the project/);
+});

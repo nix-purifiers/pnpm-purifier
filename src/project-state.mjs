@@ -4,6 +4,7 @@ import { createHash, randomBytes } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { lockImporters } from "./lib.mjs";
 
 function stable(value) {
   if (Array.isArray(value)) return value.map(stable);
@@ -84,6 +85,23 @@ function fileIdentity(file) {
   }
 }
 
+function importerManifests(project, lockfile) {
+  let importers = ["."];
+  try {
+    importers.push(...lockImporters(fs.readFileSync(lockfile, "utf8")));
+  } catch (error) {
+    if (error.code !== "ENOENT") throw error;
+  }
+  const manifests = importers.map((directory) => {
+    const file = path.resolve(project, directory, "package.json");
+    if (!within(project, file) || !within(project, physical(file))) {
+      throw new Error(`pnpm-purifier: workspace importer manifest escapes the project: ${directory}`);
+    }
+    return file;
+  });
+  return [...new Set(manifests)].sort().map(fileIdentity);
+}
+
 export function dependencyState(root, options) {
   const project = fs.realpathSync(root);
   const snapshot = stable({
@@ -92,6 +110,7 @@ export function dependencyState(root, options) {
     toolLock: fileIdentity(options.toolLockfile),
     supplementalLock: fileIdentity(options.lockfile),
     manifest: fileIdentity(path.join(project, "package.json")),
+    importerManifests: importerManifests(project, options.toolLockfile),
     workspace: fileIdentity(path.join(project, "pnpm-workspace.yaml")),
     npmrc: fileIdentity(path.join(project, ".npmrc")),
     inputs: options.inputs ?? null,
