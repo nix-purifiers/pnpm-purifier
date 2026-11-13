@@ -82,6 +82,24 @@ let
     };
 in
 {
+  # Root preparation may require development tools. Production assembly must
+  # retain its result without trying to rerun it after those tools are pruned.
+  root-prepare =
+    let
+      project =
+        (build {
+          src = ./fixtures/root-prepare;
+          pnpm = pkgs.pnpm_10;
+        }).packages.root-prepare.overrideAttrs
+          (_: {
+            CI = "true";
+          });
+    in
+    pkgs.runCommand "root-prepare" { } ''
+      ${project.artifacts.bin.root-prepare-check} > $out
+      grep -Fx 'prepare retained; development dependency pruned' $out
+    '';
+
   browser-projections = import ./browser-projections.nix {
     inherit pkgs;
     build = buildPnpmProject;
