@@ -399,14 +399,20 @@ in
 
   # The unit tests of src/lib.mjs (tests/unit/), which read the fixture
   # lockfiles.
-  unit = pkgs.runCommand "unit" { nativeBuildInputs = [ pkgs.nodejs ]; } ''
-    mkdir -p repo/tests
-    cp -r ${../src} repo/src
-    cp -r ${./unit} repo/tests/unit
-    cp -r ${./fixtures} repo/tests/fixtures
-    node --test repo/tests/unit/*.test.mjs
-    touch $out
-  '';
+  unit =
+    pkgs.runCommand "unit"
+      {
+        ${if pkgs.stdenv.hostPlatform.isDarwin then "__darwinAllowLocalNetworking" else null} = true;
+        nativeBuildInputs = [ pkgs.nodejs ];
+      }
+      ''
+        mkdir -p repo/tests
+        cp -r ${../src} repo/src
+        cp -r ${./unit} repo/tests/unit
+        cp -r ${./fixtures} repo/tests/fixtures
+        node --test repo/tests/unit/*.test.mjs
+        touch $out
+      '';
 
   # A lock whose entry for the picocolors tarball, which the prepare step
   # of the git dependency reads, names the file of ms, with a contentHash
