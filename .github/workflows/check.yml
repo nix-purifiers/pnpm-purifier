@@ -108,7 +108,9 @@ jobs:
           work=$(mktemp -d)
           git clone --quiet https://github.com/unjs/giget "$work/project"
           git -C "$work/project" checkout --quiet f1dad453055b97a81d5227edce7262c8dcaf53d2
+          node -p 'JSON.stringify({ executable: process.execPath, version: process.versions.node, abi: process.versions.modules })'
           (cd "$work/project" && nix run "$GITHUB_WORKSPACE" -- lock --lockfile "$work/lock.json")
+          if [ -e "$work/lock.json" ]; then cat "$work/lock.json"; fi
           [ ! -e "$work/lock.json" ]
           git -C "$work/project" diff --exit-code pnpm-lock.yaml
 
@@ -134,14 +136,15 @@ jobs:
           set -euo pipefail
           cp -r tests/fixtures/update "$RUNNER_TEMP/project"
           cd "$RUNNER_TEMP/project"
-          nix run "$GITHUB_WORKSPACE" -- update
+          purifier="$(nix build "$GITHUB_WORKSPACE" --out-link "$RUNNER_TEMP/update-cli" --print-out-paths)/bin/pnpm-purifier"
+          "$purifier" update
           grep -E '^  ms@2\.' pnpm-lock.yaml
           if grep -q '^  ms@2\.0\.0:' pnpm-lock.yaml; then
             echo "the lock still holds ms 2.0.0" >&2
             exit 1
           fi
-          nix run "$GITHUB_WORKSPACE" -- prefetch
-          .pnpm-purifier/command/bin/pnpm-purifier install --frozen-lockfile
+          "$purifier" prefetch
+          "$purifier" install --frozen-lockfile
       # With an external pnpm-lock.yaml, `update` writes the updated lock at
       # that path and leaves the copy in the tree as it is.
       - name: Update with a pnpm-lock.yaml outside the tree
@@ -195,9 +198,14 @@ jobs:
       - name: Prefetch the workspace fixture
         run: |
           set -euo pipefail
+          project_node=$(node -p 'process.execPath')
+          test -x "$project_node"
+          echo "PNPM_PURIFIER_TEST_NODE=$project_node" >> "$GITHUB_ENV"
           cp -r tests/fixtures/workspace "$RUNNER_TEMP/project"
           cd "$RUNNER_TEMP/project"
-          nix run "$GITHUB_WORKSPACE" -- prefetch
+          purifier="$(nix build "$GITHUB_WORKSPACE" --out-link "$RUNNER_TEMP/offline-cli" --print-out-paths)/bin/pnpm-purifier"
+          echo "PNPM_PURIFIER_TEST_CLI=$purifier" >> "$GITHUB_ENV"
+          "$purifier" prefetch
       # The runner agent keeps its connection to GitHub. The Nix daemon and
       # its builders (root and the nixbld group) lose the network, and the
       # commands below run in a network namespace of their own, which has
@@ -224,11 +232,11 @@ jobs:
               echo "the network is still reachable" >&2
               exit 1
             fi
-            purifier=.pnpm-purifier/command/bin/pnpm-purifier
+            purifier="$PNPM_PURIFIER_TEST_CLI"
             "$purifier" install
             "$purifier" --recursive run build
             "$purifier" --recursive test
-            .pnpm-purifier/node/bin/node packages/app/dist/main.js offline | grep -F "Hello, "
+            "$PNPM_PURIFIER_TEST_NODE" packages/app/dist/main.js offline | grep -F "Hello, "
           '
 
   composition-native:
@@ -262,10 +270,15 @@ jobs:
           test "$(nix eval --impure --raw --expr builtins.currentSystem)" = aarch64-darwin
           git rev-parse HEAD
           /usr/bin/curl --fail --silent --max-time 30 https://registry.npmjs.org/ > /dev/null
+          project_node=$(node -p 'process.execPath')
+          test -x "$project_node"
+          echo "PNPM_PURIFIER_TEST_NODE=$project_node" >> "$GITHUB_ENV"
           cp -r tests/fixtures/workspace "$RUNNER_TEMP/project"
           cd "$RUNNER_TEMP/project"
-          nix run "$GITHUB_WORKSPACE" -- lock
-          nix run "$GITHUB_WORKSPACE" -- prefetch
+          purifier="$(nix build "$GITHUB_WORKSPACE" --out-link "$RUNNER_TEMP/offline-cli" --print-out-paths)/bin/pnpm-purifier"
+          echo "PNPM_PURIFIER_TEST_CLI=$purifier" >> "$GITHUB_ENV"
+          "$purifier" lock
+          "$purifier" prefetch
       - name: Install, build, test and run with external network denied
         run: |
           set -euo pipefail
@@ -283,7 +296,7 @@ jobs:
             fi
             # Prove the narrow policy still permits a real loopback HTTP
             # server and client, rather than failing every network operation.
-            .pnpm-purifier/node/bin/node -e "const http = require(\"node:http\"); const fs = require(\"node:fs\"); const server = http.createServer((req, res) => res.end(\"loopback-ok\")); server.listen(0, \"127.0.0.1\", () => fs.writeFileSync(\"$RUNNER_TEMP/loopback-port\", String(server.address().port)));" &
+            "$PNPM_PURIFIER_TEST_NODE" -e "const http = require(\"node:http\"); const fs = require(\"node:fs\"); const server = http.createServer((req, res) => res.end(\"loopback-ok\")); server.listen(0, \"127.0.0.1\", () => fs.writeFileSync(\"$RUNNER_TEMP/loopback-port\", String(server.address().port)));" &
             probe=$!
             trap "kill $probe 2>/dev/null || true" EXIT
             for attempt in {1..100}; do
@@ -295,12 +308,12 @@ jobs:
             kill "$probe"
             wait "$probe" || true
             trap - EXIT
-            purifier=.pnpm-purifier/command/bin/pnpm-purifier
+            purifier="$PNPM_PURIFIER_TEST_CLI"
             test ! -e "$RUNNER_TEMP/offline-fresh-store"
             "$purifier" install --frozen-lockfile --store-dir "$RUNNER_TEMP/offline-fresh-store"
             "$purifier" --recursive run build
             "$purifier" --recursive test
-            .pnpm-purifier/node/bin/node packages/app/dist/main.js offline | grep -F "Hello, "
+            "$PNPM_PURIFIER_TEST_NODE" packages/app/dist/main.js offline | grep -F "Hello, "
           '
 
   version-runtime:

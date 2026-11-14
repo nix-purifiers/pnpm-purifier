@@ -71,6 +71,14 @@ nixpkgs (pnpm 10, 11 or 12), and keeps pnpm on that version.
 installs twice, once online, recording, and once offline from what it
 recorded.
 
+Generated Nix roots and supplied-input views live outside the project,
+under `XDG_CACHE_HOME/pnpm-purifier/v1` (or `~/.cache/pnpm-purifier/v1`).
+The cache must be user-owned and resolve outside the project. Each
+operation keeps its own private directory, so later commands cannot
+replace roots or views still used by an editor or another invocation.
+These directories persist after the command exits; automatic pruning and
+migration of existing in-tree `.pnpm-purifier` directories are not performed.
+
 ## Dependencies from another purified project
 
 ```sh
@@ -198,14 +206,19 @@ purifier from that package set or pass a compatible toolchain to the builder.
 
 ## Working offline
 
-`pnpm-purifier prefetch` realizes in the Nix store the locked files for the
-current system and the tools that day-to-day work runs: the
-`pnpm-purifier` command itself, Node.js, pnpm 10, 11 and 12, the nixpkgs
-they come from, and the purifier library with its flake inputs. It keeps
-each one alive with a garbage-collector root in `.pnpm-purifier/`. After a
-prefetch, `.pnpm-purifier/command/bin/pnpm-purifier install`, the build and
-test scripts and the editor work with no network, and so does the Nix
-build of the project.
+Local capture and development use the project's existing `node` on PATH
+(or the invoking Node for direct source execution). The Node packaged with
+the command is an implementation helper, not a replacement project runtime.
+Node-based package-manager frontends run under the selected project Node,
+including lifecycle scripts and nested package-manager calls. A host runtime
+outside the Nix store is valid; no runtime version table selects its replacement.
+Upstream engine and actual Node ABI/API requirements still apply.
+
+`pnpm-purifier prefetch` realizes the locked dependency files and retains
+already-present tools where they have store paths. It does not provision the
+bundled SDK matrix. The host runtime remains installed and managed by the
+user. Full sandboxed project builds select their immutable toolchain separately,
+through the builder's `nodejs` and `pnpm` overrides.
 
 We recommend committing both lockfiles to the repository of the project,
 and the builder and the commands look for them there. A flake can instead
@@ -385,3 +398,13 @@ adapter does not transform Node/Bun APIs or bundle dependencies automatically.
 
 The purifier idea was inspired by nixcloud's
 [cargo (libnix)](https://github.com/nixcloud/cargo).
+
+Temporary project copies run lifecycle scripts without Git metadata. Their canonical
+`TMPDIR` ancestry must contain no `.git` entry, including Git worktree files or
+dangling symlinks. If capture refuses the temporary directory, select a private
+temporary location outside repository ancestry. Repository-target Git environment
+overrides and external `core.hooksPath` or `core.worktree` configuration are also
+rejected for these copies. Ordinary in-place commands retain caller Git semantics.
+Hooks requiring actual repository history can fail honestly on temporary archive
+copies; the CLI does not fabricate history or suppress hooks. This guard is an
+operational boundary, not protection against hostile concurrent filesystem changes.

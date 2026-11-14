@@ -115,11 +115,27 @@ in
       grep -Fx 'prepare retained; development dependency pruned' $out
     '';
 
+  hoisted-lifecycle =
+    (build {
+      src = ./fixtures/hoisted-lifecycle;
+      pnpm = pkgs.pnpm_10;
+    }).tests.overrideAttrs
+      (_: {
+        installPhase = ''
+          mkdir -p "$out"
+          cp prepared.json resolved.txt "$out/"
+        '';
+      });
+
   browser-projections = import ./browser-projections.nix {
     inherit pkgs;
     build = buildPnpmProject;
   };
   inherit cli;
+  registry-environment = import ./registry-environment.nix {
+    inherit pkgs buildPnpmProject;
+  };
+
   current-script-installs = import ./script-installs.nix {
     inherit pkgs buildPnpmProject;
   };
@@ -368,6 +384,44 @@ in
   # system it is for in `systems`, and the manifest of the host system
   # holds that system's one. `fetches` lists the entries of every system
   # for SBOM and license tools.
+  # A required foreign binary can be input data for a cross compiler.
+  # Its npm platform fields must not remove it from the local registry.
+  mandatory-platform =
+    (build {
+      src = ./fixtures/mandatory-platform;
+      pnpm = pkgs.pnpm_11;
+    }).tests;
+
+  mandatory-platform-parser =
+    let
+      parse = import ../lib-overlays/default/pnpm-lock.nix;
+      optional = text: map (p: p.optional) (parse text).packages;
+    in
+    assert
+      optional ''
+        packages:
+          example@1.0.0: {}
+        snapshots:
+          example@1.0.0(peer@1.0.0):
+            optional: true
+          example@1.0.0(peer@2.0.0): {}
+      '' == [ false ];
+    assert
+      optional ''
+        packages:
+          example@1.0.0: {}
+        snapshots:
+          example@1.0.0(peer@1.0.0):
+            optional: true
+      '' == [ true ];
+    assert
+      optional ''
+        packages:
+          example@1.0.0:
+            optional: true
+      '' == [ true ];
+    pkgs.runCommand "mandatory-platform-parser" { } "touch $out";
+
   platform-filters =
     let
       own =
@@ -432,14 +486,23 @@ in
 
   # The unit tests of src/lib.mjs (tests/unit/), which read the fixture
   # lockfiles.
-  unit = pkgs.runCommand "unit" { nativeBuildInputs = [ pkgs.nodejs ]; } ''
-    mkdir -p repo/tests
-    cp -r ${../src} repo/src
-    cp -r ${./unit} repo/tests/unit
-    cp -r ${./fixtures} repo/tests/fixtures
-    node --test repo/tests/unit/lib.test.mjs
-    touch $out
-  '';
+  unit =
+    pkgs.runCommand "unit"
+      {
+        ${if pkgs.stdenv.hostPlatform.isDarwin then "__darwinAllowLocalNetworking" else null} = true;
+        nativeBuildInputs = [
+          pkgs.nodejs
+          pkgs.git
+        ];
+      }
+      ''
+        mkdir -p repo/tests
+        cp -r ${../src} repo/src
+        cp -r ${./unit} repo/tests/unit
+        cp -r ${./fixtures} repo/tests/fixtures
+        node --test repo/tests/unit/*.test.mjs
+        touch $out
+      '';
 
   # A lock whose entry for the picocolors tarball, which the prepare step
   # of the git dependency reads, names the file of ms, with a contentHash

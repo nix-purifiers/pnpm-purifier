@@ -45,6 +45,7 @@ scope@{
   linkFarm,
   runCommand,
   python3,
+  git,
   nix,
   writeText,
   callPackage,
@@ -187,7 +188,11 @@ let
       # node-gyp builds native addons against these headers rather than
       # downloading them.
       export npm_config_nodedir=${nodejs}
+      # Command shims let fresh dependency CLIs use the SDK interpreters
+      # during installation, before the dependency shebang pass can run.
+      export npm_config_prefer_symlinked_executables=false
       ${lib.optionalString (dependencies != [ ]) ''
+        export PNPM_PURIFIER_GIT=${lib.getExe git}
         export PNPM_PURIFIER_INPUT_VIEWS=${inputViews}
         export pnpm_config_global_pnpmfile=${../../src/npm-inputs.cjs}
         export npm_config_global_pnpmfile=${../../src/npm-inputs.cjs}

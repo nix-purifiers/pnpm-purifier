@@ -1,0 +1,15 @@
+{
+  "name": "mandatory-platform-fixture",
+  "version": "1.0.0",
+  "private": true,
+  "packageManager": "pnpm@11.27.0",
+  "scripts": {
+    "test": "node -e \"require('node:assert/strict').ok(require('node:fs').existsSync('node_modules/@esbuild/win32-x64/esbuild.exe')); require('node:assert/strict').equal(require('node:fs').existsSync('node_modules/@esbuild/darwin-x64'), false)\""
+  },
+  "devDependencies": {
+    "@esbuild/win32-x64": "0.25.12"
+  },
+  "optionalDependencies": {
+    "@esbuild/darwin-x64": "0.25.12"
+  }
+}
