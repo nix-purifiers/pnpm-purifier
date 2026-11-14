@@ -168,14 +168,16 @@ let
     else if !(r ? integrity) then
       problem "${p.key} in ${pnpmLockName} has no integrity. Run `pnpm install`, then `pnpm-purifier lock`."
     else if tarball != null then
-      file tarball r.integrity p.filters
+      file tarball r.integrity (if p.optional then p.filters else { })
     else if p.version == null then
       problem "${p.key} in ${pnpmLockName} names no version. Run `pnpm install`, then `pnpm-purifier lock`."
     else
       let
         base = elemAt (match "(@[^/]+/)?(.*)" p.name) 1;
       in
-      file "${registryFor p.name}${p.name}/-/${base}-${p.version}.tgz" r.integrity p.filters;
+      file "${registryFor p.name}${p.name}/-/${base}-${p.version}.tgz" r.integrity (
+        if p.optional then p.filters else { }
+      );
 
   results = map fromPackage parsed.packages;
   derived = concatMap (r: r.entries) results;

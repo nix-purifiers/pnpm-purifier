@@ -49,6 +49,7 @@
 //
 // The parsing and the path rules are in lib.mjs.
 
+import { assertProjectScratch, projectScratch, guardScratchRun } from "./project-scratch.mjs";
 import { ProjectRuntime } from "./project-runtime.mjs";
 import { bindNativeLock, needsNativeRebind } from "./npm-input-lock.mjs";
 import { spawn, spawnSync } from "node:child_process";
@@ -59,9 +60,9 @@ import os from "node:os";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
+import { assertStateUnchanged, createStateOperation, targetRoot, writeStateJson } from "./project-state.mjs";
 import {
   LOCK_FILE,
-  LOCK_PLATFORMS,
   LOCK_VERSION,
   contentHash,
   isMetadata,
@@ -71,6 +72,7 @@ import {
   localizeMetadata,
   derivedFilePaths,
   lockImporters,
+  lockPlatformOptions,
   lockProblems,
   needsRegistry,
   outsideResolutions,
@@ -86,12 +88,6 @@ import {
 } from "./lib.mjs";
 
 const STATE_DIR = ".pnpm-purifier";
-
-const PLATFORM_ARGS = [
-  ...LOCK_PLATFORMS.os.map((o) => `--os=${o}`),
-  ...LOCK_PLATFORMS.cpu.map((c) => `--cpu=${c}`),
-  ...LOCK_PLATFORMS.libc.map((l) => `--libc=${l}`),
-];
 
 const selfPath = fileURLToPath(import.meta.url);
 const libDir = process.env.PNPM_PURIFIER_NIX_LIB ?? path.join(path.dirname(selfPath), "../pkgs/build-pnpm-project");
@@ -188,6 +184,7 @@ function pnpmConfigEnv(base, registries, dir) {
   fs.writeFileSync(userconfig, own + registryLines(base, registries));
   return {
     npm_config_userconfig: userconfig,
+    npm_config_registry: localRegistry(base, registries.default),
     pnpm_config_registry: localRegistry(base, registries.default),
     pnpm_config_pm_on_fail: "ignore",
     pnpm_config_update_notifier: "false",
@@ -310,6 +307,7 @@ function childEnv(env = process.env) {
 
 function run(command, args, options = {}) {
   const { impure = false, ...spawnOptions } = options;
+  guardScratchRun(options.cwd ?? process.cwd(), options.env ?? process.env);
   return new Promise((resolve) => {
     const child = spawn(useProjectRuntime ? runtime().command(command) : command, args, { stdio: "inherit", ...spawnOptions, env: impure && useProjectRuntime ? runtime().environment(options.env ?? process.env) : childEnv(options.env) });
     child.on("error", (err) => fail(`cannot run ${command}: ${err.message}`));
@@ -448,7 +446,11 @@ function lockGit(resolution) {
   return { entry, subdirectory: subdirectory ?? null, file: nixBuild(expr, ["--no-link"]) };
 }
 
-async function installFrom(project, work, registries, server, gitFiles, extraEnv) {
+async function installFrom(project, work, registries, server, gitFiles, extraEnv, pnpmVersion) {
+  const manifestFile = path.join(project, "package.json");
+  const manifest = JSON.parse(fs.readFileSync(manifestFile, "utf8"));
+  const platforms = lockPlatformOptions(pnpmVersion, manifest);
+  if (platforms.manifest !== manifest) fs.writeFileSync(manifestFile, JSON.stringify(platforms.manifest, null, 2) + "\n");
   pinProjectRegistries(project, server.base, registries);
   const rewrite = rewriteLockFile(project, server.base, (p) => gitFiles.get(p) ?? null);
   const env = {
@@ -459,13 +461,14 @@ async function installFrom(project, work, registries, server, gitFiles, extraEnv
   };
   const code = await run(
     pnpmCommand(project),
-    ["install", "--frozen-lockfile", "--store-dir", path.join(work, "store"), ...PLATFORM_ARGS],
+    ["install", "--frozen-lockfile", "--store-dir", path.join(work, "store"), ...platforms.args],
     { cwd: project, env },
   );
   return { code, env, rewrite };
 }
 
 async function lock(root = process.cwd()) {
+  const work = projectScratch("pnpm-purifier-lock-");
   const started = Date.now();
   const lockYaml = toolLockfilePath(root);
   const treeYaml = path.join(root, "pnpm-lock.yaml");
@@ -476,7 +479,7 @@ async function lock(root = process.cwd()) {
   }
   if (!fs.existsSync(lockYaml)) {
     console.error("pnpm-purifier: the project has no pnpm-lock.yaml, so pnpm resolves the dependencies and writes it");
-    const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "pnpm-purifier-resolve-"));
+    const scratch = projectScratch("pnpm-purifier-resolve-");
     copyProject(root, path.join(scratch, "project"));
     const code = await run(pnpmCommand(root), ["install", "--lockfile-only"], { cwd: path.join(scratch, "project") });
     const written = path.join(scratch, "project", "pnpm-lock.yaml");
@@ -487,7 +490,7 @@ async function lock(root = process.cwd()) {
     fs.rmSync(scratch, { recursive: true, force: true });
   }
   if (projectInputs.length) {
-    const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "pnpm-purifier-input-lock-"));
+    const scratch = projectScratch("pnpm-purifier-input-lock-");
     const project = path.join(scratch, "project");
     copyProjectWithLock(root, project);
     const code = await run(pnpmCommand(root), ["install", "--lockfile-only", "--ignore-scripts"], {cwd:project});
@@ -511,7 +514,6 @@ async function lock(root = process.cwd()) {
 
   // Pass 1 installs through the upstream registries and records every
   // tarball pnpm downloads, and the registry metadata it reads.
-  const work = fs.mkdtempSync(path.join(os.tmpdir(), "pnpm-purifier-lock-"));
   const recordDir = path.join(work, "record");
   const project = path.join(recordDir, "project");
   copyProjectWithLock(root, project);
@@ -539,7 +541,7 @@ async function lock(root = process.cwd()) {
     },
   });
   console.error(`pnpm-purifier: installing from pnpm-lock.yaml with pnpm ${pnpmVersion}, recording every download`);
-  const first = await installFrom(project, recordDir, registries, recorder, gitFiles, {});
+  const first = await installFrom(project, recordDir, registries, recorder, gitFiles, {}, pnpmVersion);
   recorder.server.close();
   if (first.code !== 0) {
     fail(`pnpm install failed in the lock run (exit ${first.code}); the lock run's copy of the project is at ${project}`);
@@ -563,7 +565,7 @@ async function lock(root = process.cwd()) {
       quiet: true,
     });
     console.error("pnpm-purifier: installing again from the recorded downloads alone");
-    const second = await installFrom(verifyProject, verifyDir, registries, verifier, gitFiles, OFFLINE_ENV);
+    const second = await installFrom(verifyProject, verifyDir, registries, verifier, gitFiles, OFFLINE_ENV, pnpmVersion);
     verifier.server.close();
     if (second.code === 0) break;
     const added = [];
@@ -640,15 +642,17 @@ async function lock(root = process.cwd()) {
 // command. Both files are put back afterwards. The result is the exit code
 // and the paths the registry could not serve.
 async function execWithManifest(manifestFile, registriesFile, command, { projectDir = null, inPlace = null } = {}) {
+  const lockDir = projectDir ?? inPlace;
+  const source = inPlace != null ? toolLockfileOption : null;
+  const needsCopy = lockDir != null && needsNativeRebind(source ?? path.join(lockDir,"pnpm-lock.yaml"));
+  if (needsCopy) assertProjectScratch(fs.realpathSync(os.tmpdir()));
   const manifest = JSON.parse(fs.readFileSync(manifestFile, "utf8"));
   const registries = JSON.parse(fs.readFileSync(registriesFile, "utf8"));
   const misses = new Set();
   const { server, base } = await startRegistry({ lookup: (p) => manifest[p] ?? null, misses });
-  const configDir = fs.mkdtempSync(path.join(os.tmpdir(), "pnpm-purifier-"));
+  const configDir = needsCopy ? projectScratch("pnpm-purifier-rebind-") : fs.mkdtempSync(path.join(os.tmpdir(), "pnpm-purifier-"));
   const fileOf = (p) => manifest[p] ?? null;
   const unpin = projectDir != null ? pinProjectRegistries(projectDir, base, registries) : () => {};
-  const lockDir = projectDir ?? inPlace;
-  const source = inPlace != null ? toolLockfileOption : null;
   const rewrite = lockDir != null ? rewriteLockFile(lockDir, base, fileOf, source) : null;
   let providedOriginal = null;
   const restore = () => {
@@ -667,7 +671,7 @@ async function execWithManifest(manifestFile, registriesFile, command, { project
     ...OFFLINE_ENV,
   };
   try {
-    if (lockDir != null && needsNativeRebind(path.join(lockDir,"pnpm-lock.yaml"))) {
+    if (needsCopy) {
       const project = path.join(configDir,"project");
       copyProjectWithLock(lockDir,project);
       pinProjectRegistries(project,base,registries);
@@ -711,14 +715,27 @@ function readLock(root) {
 }
 
 // Builds the manifest of the locked files and the registries file with
-// Nix, through the builder, with GC roots in .pnpm-purifier/.
+// Nix, through the builder. Every operation registers fresh private roots;
+// another invocation cannot replace paths this command is still using.
+function stateOperation(root, kind) {
+  return createStateOperation(root, {
+    lockfile: lockfilePath(root),
+    toolLockfile: toolLockfilePath(root),
+    inputs: inputReferences,
+    library: process.env.PNPM_PURIFIER_LIBRARY,
+    nixpkgs: process.env.PNPM_PURIFIER_NIXPKGS,
+    builder: libDir,
+  }, kind);
+}
+
 function realize(root) {
-  const stateDir = path.join(root, STATE_DIR);
-  fs.mkdirSync(stateDir, { recursive: true });
+  const state = stateOperation(root, "realize");
   const hint = `Nix could not fetch the files that pnpm-lock.yaml and ${LOCK_FILE} name. A hash mismatch means a file was edited or a download changed; run \`pnpm-purifier lock\``;
-  const manifest = nixBuild(`let p = ${builderExpr(root)}; in ${nixpkgsExpr()}.callPackage ${JSON.stringify(path.join(libDir, "dependencies.nix"))} { purifier = ${libraryExpr()}; entries = p.fetches; }`, ["--out-link", path.join(stateDir, "manifest")], hint);
-  const registriesFile = nixBuild(`${builderExpr(root)}.registriesFile`, ["--out-link", path.join(stateDir, "registries")], hint);
-  return { manifest, registriesFile };
+  const manifest = nixBuild(`let p = ${builderExpr(root)}; in ${nixpkgsExpr()}.callPackage ${JSON.stringify(path.join(libDir, "dependencies.nix"))} { purifier = ${libraryExpr()}; entries = p.fetches; }`, ["--out-link", path.join(state.roots, "manifest")], hint);
+  assertStateUnchanged(state);
+  const registriesFile = nixBuild(`${builderExpr(root)}.registriesFile`, ["--out-link", path.join(state.roots, "registries")], hint);
+  assertStateUnchanged(state);
+  return { manifest, registriesFile, state };
 }
 
 // Updates both lockfiles: pnpm re-resolves the dependencies (every one, or
@@ -727,12 +744,13 @@ function realize(root) {
 // With the pnpm-lock.yaml of an external build, pnpm updates it in a copy
 // of the project, and the copy in the tree stays as it is.
 async function update(packages) {
+  // Validate an allocated context before any authored update writes.
+  const scratch = projectScratch("pnpm-purifier-update-");
   const root = process.cwd();
   if (toolLockfileOption == null) {
     const code = await run(pnpmCommand(root), ["update", "--lockfile-only", ...packages], {});
     if (code !== 0) process.exit(code);
   } else {
-    const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "pnpm-purifier-update-"));
     const project = path.join(scratch, "project");
     copyProject(root, project);
     if (fs.existsSync(toolLockfileOption)) fs.copyFileSync(toolLockfileOption, path.join(project, "pnpm-lock.yaml"));
@@ -750,14 +768,18 @@ async function update(packages) {
         fs.copyFileSync(updated, original);
       }
     }
-    fs.rmSync(scratch, { recursive: true, force: true });
   }
+  fs.rmSync(scratch, { recursive: true, force: true });
   await lock(root);
 }
 
 // Runs pnpm with the network, and locks again when the command changed
 // pnpm-lock.yaml.
 async function online(root, args) {
+  if (process.env.PNPM_PURIFIER !== "0") {
+    const scratch = projectScratch("pnpm-purifier-online-check-");
+    fs.rmSync(scratch, { recursive: true, force: true });
+  }
   const yaml = path.join(root, "pnpm-lock.yaml");
   const before = fs.existsSync(yaml) ? hexDigest(fs.readFileSync(yaml)) : null;
   const code = await run(pnpmCommand(root), args, {});
@@ -862,16 +884,14 @@ function storePathOf(file) {
   return m ? m[1] : null;
 }
 
-// Keeps a store path alive with a garbage-collector root at
-// .pnpm-purifier/<name>.
-function addRoot(root, name, storePath) {
-  const link = path.join(root, STATE_DIR, name);
-  fs.rmSync(link, { force: true });
-  capture("nix", ["build", "--no-link", "--out-link", link, storePath]);
+// This operation owns a fresh directory. Actual store targets, rather than
+// mutable role aliases, determine its tool-root names.
+function addRoot(state, storePath) {
+  capture("nix", ["build", "--out-link", targetRoot(state, storePath), storePath]);
 }
 
 // Realizes everything day-to-day work reads, and keeps it alive with GC
-// roots in .pnpm-purifier/: the locked files for this system, the pnpm and
+// private roots outside the project: the locked files for this system, the pnpm and
 // Node.js the command runs, the command itself, the nixpkgs it builds
 // with, and the purifier library flake with its inputs. Afterwards an
 // offline install, the build and test scripts, and the editor work with no
@@ -879,11 +899,11 @@ function addRoot(root, name, storePath) {
 async function prefetch() {
   const root = process.cwd();
   if (!readLock(root)) fail(`prefetching needs a current ${LOCK_FILE}; run \`pnpm-purifier lock\``);
-  const { manifest } = realize(root);
+  const { manifest, state } = realize(root);
   const roots = new Map();
   const add = (name, file) => {
     const p = file && storePathOf(file);
-    if (p) roots.set(name, p);
+    if (p) roots.set(p, name);
   };
   add("node", runtime().node.executable);
   add("pnpm", runtime().manager);
@@ -897,9 +917,10 @@ async function prefetch() {
     };
     walk(archived, "purifier");
   }
-  for (const [name, storePath] of roots) addRoot(root, name, storePath);
+  for (const storePath of roots.keys()) addRoot(state, storePath);
+  assertStateUnchanged(state);
   const files = Object.keys(JSON.parse(fs.readFileSync(manifest, "utf8"))).length;
-  console.error(`pnpm-purifier: ${files} locked files and ${roots.size} tools are in the Nix store, kept by the roots in ${STATE_DIR}/`);
+  console.error(`pnpm-purifier: ${files} locked files and ${roots.size} tools are in the Nix store, kept by the roots in ${state.roots}`);
 }
 
 // --- Command line -----------------------------------------------------------
@@ -963,17 +984,19 @@ let projectInputs = [];
 async function prepareProjectInputs(root, refresh = false) {
   const previous = fs.existsSync(lockfilePath(root)) ? JSON.parse(fs.readFileSync(lockfilePath(root), "utf8")).projectInputs || [] : [];
   if (inputReferences == null && previous.length === 0) return;
-  const state = path.join(root, STATE_DIR);
+  const state = stateOperation(root, "inputs");
   projectInputs = JSON.parse(capture(process.env.PNPM_PURIFIER_PYTHON || "python3", [
     path.join(path.dirname(selfPath), "project-inputs.py"), process.env.PNPM_PURIFIER_INPUT_TOOLS || path.join(process.env.PNPM_PURIFIER_LIBRARY, "tools"),
-    lockfilePath(root), state, JSON.stringify(inputReferences), String(refresh),
+    lockfilePath(root), state.directory, JSON.stringify(inputReferences), String(refresh),
   ]));
+  assertStateUnchanged(state);
+  writeStateJson(path.join(state.directory, "inputs.json"), projectInputs);
   if (!projectInputs.length) return;
   const current = process.env.pnpm_config_global_pnpmfile || capture(pnpmCommand(root), ["config", "get", "globalPnpmfile"]).trim();
   if (current && !["undefined", "null"].includes(current) && path.resolve(current) !== path.join(path.dirname(selfPath), "npm-inputs.cjs")) {
     process.env.PNPM_PURIFIER_PREVIOUS_GLOBAL_HOOK = path.resolve(root, current);
   }
-  process.env.PNPM_PURIFIER_INPUT_VIEWS = path.join(state, "input-views.json");
+  process.env.PNPM_PURIFIER_INPUT_VIEWS = path.join(state.directory, "input-views.json");
   process.env.pnpm_config_global_pnpmfile = path.join(path.dirname(selfPath), "npm-inputs.cjs");
   process.env.npm_config_global_pnpmfile = process.env.pnpm_config_global_pnpmfile;
 }
