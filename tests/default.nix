@@ -82,6 +82,21 @@ let
     };
 in
 {
+  # Nested node_modules can be tracked test data. Installed root/workspace
+  # modules must still be excluded from the copied project source.
+  source-filter =
+    let
+      project =
+        (build {
+          src = ./fixtures/source-filter;
+          pnpm = pkgs.pnpm_10;
+        }).packages.source-filter;
+    in
+    pkgs.runCommand "source-filter" { } ''
+      test "$(cat ${project}/lib/node_modules/source-filter/verified.json)" = '{"fixture":42,"hostModulesExcluded":true}'
+      touch $out
+    '';
+
   # Root preparation may require development tools. Production assembly must
   # retain its result without trying to rerun it after those tools are pruned.
   root-prepare =

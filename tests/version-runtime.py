@@ -218,7 +218,9 @@ def main():
                 assert 'milliseconds: 3600000' in command(tool, 'test', cwd=project, env=switched_env)
                 assert_store(project, temporary / f'{label}-{major}')
             before = (project / 'pnpm-lock.yaml').read_bytes()
-            env['PNPM_RUNTIME_PROJECT'] = str(project)
+            # Nix resolves source aliases before calling its source filter.
+            # Keep the filter's root and callback paths in the same namespace.
+            env['PNPM_RUNTIME_PROJECT'] = str(project.resolve(strict=True))
             expression = prefix + '(p.pnpm-purifier.buildPnpmProject {src=/. + builtins.getEnv "PNPM_RUNTIME_PROJECT";pnpm=' + sdk_expression + ';}).packages.version-probe'
             env['PNPM_PURIFIER_PNPM'] = str(native)
             installed = Path(command('nix', 'build', '--impure', '--expr', expression, '--out-link', temporary / f'pure-{major}', '--print-out-paths', env=env))
