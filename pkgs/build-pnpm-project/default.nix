@@ -84,8 +84,8 @@ scope@{
   # C compiler for native addons.
   nativeBuildInputs ? [ ],
   # Filters the project root before it is copied into the store, as the
-  # `filter` of builtins.path. The default leaves out node_modules and
-  # editor state.
+  # `filter` of builtins.path. The default leaves out installed modules
+  # at the root and workspace project roots, and editor state.
   srcFilter ? null,
 }:
 let
@@ -128,9 +128,17 @@ let
     path: type:
     let
       name = baseNameOf path;
+      relative = lib.removePrefix "${toString src}/" (toString path);
+      projectModules =
+        relative == "node_modules"
+        || builtins.any (project: relative == "${project.path}/node_modules") (
+          builtins.attrValues projects
+        );
     in
     !(
-      (type == "directory" && (name == "node_modules" || name == ".pnpm-purifier"))
+      # Nested node_modules may be tracked test fixtures. Only the installs
+      # at the root and workspace project roots are generated module trees.
+      (type == "directory" && ((name == "node_modules" && projectModules) || name == ".pnpm-purifier"))
       # The purifier lockfile goes to the build as `lockFile`.
       || name == "pnpm-purifier.lock.json"
       || name == ".git"

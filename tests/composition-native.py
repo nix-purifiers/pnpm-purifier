@@ -21,7 +21,7 @@ assert str(Path(snapshot).resolve()) == snapshot
 print('producer revision:',subprocess.check_output(['git','rev-parse','HEAD'],cwd=root,text=True).strip(),flush=True)
 subprocess.run(['nix','path-info','--json',snapshot],check=True)
 with tempfile.TemporaryDirectory(prefix='pnpm-native-composition-') as temporary:
-    temporary=Path(temporary)
+    temporary=Path(temporary).resolve(strict=True)
     subprocess.run(['nix-store','--add-root',str(temporary/'source'),'--realise',snapshot],check=True)
     cli=Path(subprocess.check_output(['nix','build',str(root)+'#cli','--out-link',str(temporary/'cli'),'--print-out-paths'],text=True).strip())/'bin/pnpm-purifier'
     env=dict(os.environ,PNPM_COMPOSITION_FLAKE=snapshot)
